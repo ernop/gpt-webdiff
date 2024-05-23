@@ -1,3 +1,8 @@
+apikey.txt
+config.json
+data/*
+.gptcron
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
