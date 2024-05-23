@@ -171,8 +171,8 @@ def list_jobs():
             print(job.strip())
 
 def run_job(name, url):
-    latest_file = download_url(url, name)
     last_file, _ = get_last_file(name)
+    latest_file = download_url(url, name)
     changes_detected = False
 
     if last_file:
@@ -214,7 +214,6 @@ def check_cron():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
-                    #~ import ipdb;ipdb.set_trace()
                     if len(parts) >= 4:
                         total_jobs += 1
                         frequency = parts[0]
