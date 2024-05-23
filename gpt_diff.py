@@ -15,6 +15,12 @@ CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
 
+from bs4 import BeautifulSoup
+
+def extract_text_from_html(html_content):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    return soup.get_text(separator=' ', strip=True)
+
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
@@ -23,14 +29,14 @@ def load_apikey():
     with open(API_KEY_FILE, 'r') as f:
         return f.read().strip()
 
-def send_email(subject, body, to_email):
+def send_email(job_name, url, summary, diff_text, to_email):
     config = load_config()
-    msg = MIMEText(body)
-    msg['Subject'] = subject
+    msg = MIMEText(f"Job: {job_name}\nURL: {url}\n\nSummary:\n{summary}\n\nDiff:\n{diff_text}")
+    msg['Subject'] = f"Changes detected for {job_name} ({url})"
     msg['From'] = config['email']
     msg['To'] = to_email
 
-    # Using Gmail's SMTP server as an example
+    # Using Gmail's SMTP server
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
     smtp_user = config['email']
@@ -69,6 +75,8 @@ def compare_files(file1, file2):
 
 def summarize_diff(diff_text):
     openai.api_key = load_apikey()
+    context_text = extract_text_from_html(html_content)
+    combined_text = f"Diff:\n{diff_text}\n\nContext:\n{context_text[:3000]}"  # Adjust the length as needed
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
@@ -108,17 +116,24 @@ def add_job(name, url, frequency):
         f.write(cron_entry)
     print(f"Job '{name}' added successfully.")
 
-def run_job(name, url):
-    import ipdb;ipdb.set_trace()
-    last_file = get_last_file(name)
-    latest_file = download_url(url, name)
+def save_email_to_disk(job_name, subject, body):
+    email_dir = "emails"
+    os.makedirs(email_dir, exist_ok=True)
+    filename = os.path.join(email_dir, f"{job_name}-{datetime.now().strftime('%Y%m%d%H%M%S')}.txt")
+    with open(filename, 'w') as f:
+        f.write(f"Subject: {subject}\n\n{body}")
 
+def run_job(name, url):
+    latest_file = download_url(url, name)
+    last_file = get_last_file(name)
 
     if last_file:
         diff_text = compare_files(last_file, latest_file)
         if diff_text:
-            summary = summarize_diff(diff_text)
-            send_email(f"Changes detected for {name}", f"Summary:\n{summary}\n\nDiff:\n{diff_text}", load_config()['email'])
+            with open(latest_file, 'r') as f:
+                html_content = f.read()
+            summary = summarize_diff(diff_text, html_content)
+            send_email(name, url, summary, diff_text, load_config()['email'])
 
 def list_jobs():
     if not os.path.exists('.gptcron'):
