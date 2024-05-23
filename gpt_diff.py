@@ -1,5 +1,7 @@
 import os
 import sys
+import re
+import argparse
 import subprocess
 import hashlib
 import difflib
@@ -19,6 +21,8 @@ def load_config():
 def load_apikey():
     with open(API_KEY_FILE, 'r') as f:
         return f.read().strip()
+
+
 
 def send_email(subject, body, to_email):
     config = load_config()
@@ -61,9 +65,18 @@ def summarize_diff(diff_text):
     return response.choices[0].text.strip()
 
 def add_job(name, url, frequency):
+    if not name.isalphanumeric():
+        print("Error: Job name must be alphanumeric.")
+        sys.exit(1)
+
+    if not is_valid_url(url):
+        print("Error: Invalid URL format.")
+        sys.exit(1)
+
     cron_entry = f"{frequency} /usr/bin/python3 /mnt/d/proj/gpt-diff/gpt-diff/gpt_diff.py run {name} {url}\n"
     with open('.gptcron', 'a') as f:
         f.write(cron_entry)
+    print(f"Job '{name}' added successfully.")
 
 def run_job(name, url):
     latest_file = download_url(url, name)
@@ -75,6 +88,23 @@ def run_job(name, url):
             summary = summarize_diff(diff_text)
             send_email(f"Changes detected for {name}", f"Summary:\n{summary}\n\nDiff:\n{diff_text}", load_config()['email'])
 
+def list_jobs():
+    if not os.path.exists('.gptcron'):
+        print("No jobs found.")
+        return
+
+    with open('.gptcron', 'r') as f:
+        jobs = f.readlines()
+
+    if not jobs:
+        print("No jobs found.")
+        return
+
+    print("Current monitoring jobs:")
+    for job in jobs:
+        if job.strip() and not job.startswith('#'):
+            print(job.strip())
+
 def check_cron():
     import ipdb;ipdb.set_trace()
     if os.path.exists('.gptcron'):
@@ -82,37 +112,58 @@ def check_cron():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
-                    if len(parts) >= 3:
+                    if len(parts) >= 4:
                         frequency = parts[0]
                         command = parts[1]
                         name = parts[2]
                         url = parts[3]
-                        if command == '/usr/bin/python3' and 'gpt_diff.py' in parts[1]:
+                        if command == '/usr/bin/python3' and 'gpt_diff.py' in command:
                             run_job(name, url)
 
+
+
+def is_valid_url(url):
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
+        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...or ipv6
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return re.match(regex, url) is not None
+
+def setup_argparse():
+    parser = argparse.ArgumentParser(
+        description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.'
+    )
+    subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
+
+    add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: add <name> <URL> <frequency>')
+    add_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+    add_parser.add_argument('url', type=str, help='URL to monitor')
+    add_parser.add_argument('frequency', type=str, help='Frequency to check the URL (e.g., daily, hourly, weekly)')
+
+    run_parser = subparsers.add_parser('run', help='Run the monitoring for a specific URL. Usage: run <name> <URL>')
+    run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+    run_parser.add_argument('url', type=str, help='URL to monitor')
+
+    subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs. Usage: check_cron')
+    subparsers.add_parser('list', help='List all monitoring jobs. Usage: list')
+
+    return parser
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: gpt_diff.py <add|run|check_cron> <name> <URL> [frequency]")
-        sys.exit(1)
+    parser = setup_argparse()
+    args = parser.parse_args()
 
-    command = sys.argv[1]
-    name = sys.argv[2]
-
-    if command == "add":
-        if len(sys.argv) != 5:
-            print("Usage: gpt_diff.py add <name> <URL> <frequency>")
-            sys.exit(1)
-        url = sys.argv[3]
-        frequency = sys.argv[4]
-        add_job(name, url, frequency)
-    elif command == "run":
-        if len(sys.argv) != 4:
-            print("Usage: gpt_diff.py run <name> <URL>")
-            sys.exit(1)
-        url = sys.argv[3]
-        run_job(name, url)
-    elif command == "check_cron":
+    if args.command == "add":
+        add_job(args.name, args.url, args.frequency)
+    elif args.command == "run":
+        run_job(args.name, args.url)
+    elif args.command == "check_cron":
         check_cron()
+    elif args.command == "list":
+        list_jobs()
     else:
-        print("Invalid command")
-        sys.exit(1)
+        parser.print_help()
