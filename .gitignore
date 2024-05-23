@@ -1,6 +1,8 @@
+emails/*
 apikey.txt
 config.json
 data/*
+emails/*
 .gptcron
 
 # Byte-compiled / optimized / DLL files

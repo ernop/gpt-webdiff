@@ -10,6 +10,8 @@ from datetime import datetime
 import openai
 import argparse
 import re
+import time
+from datetime import datetime
 
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
@@ -31,10 +33,18 @@ def load_apikey():
 
 def send_email(job_name, url, summary, diff_text, to_email):
     config = load_config()
-    msg = MIMEText(f"Job: {job_name}\nURL: {url}\n\nSummary:\n{summary}\n\nDiff:\n{diff_text}")
-    msg['Subject'] = f"Changes detected for {job_name} ({url})"
+    subject = f"Changes detected for {job_name} at {url}"
+    body = f"Job: {job_name}\nURL: {url}\n\nSummary:\n{summary}\n\nDiff:\n{diff_text}"
+    msg = MIMEText(body)
+    msg['Subject'] = subject
     msg['From'] = config['email']
     msg['To'] = to_email
+
+    # Save email content to disk
+    save_email_to_disk(job_name, subject, body)
+
+    # Print email content to console for debugging
+    print(f"Sending Email:\n\tSubject: {subject}\n\t{body}")
 
     # Using Gmail's SMTP server
     smtp_server = "smtp.gmail.com"
@@ -66,26 +76,45 @@ def compute_hash(file_path):
 
 def get_last_file(name):
     files = sorted([f for f in os.listdir(f"data/{name}") if os.path.isfile(os.path.join(f"data/{name}", f))])
-    return os.path.join(f"data/{name}", files[-1]) if files else None
+    if files:
+        last_file = files[-1]
+        last_run_time = datetime.strptime(last_file, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp()
+        return os.path.join(f"data/{name}", last_file), last_run_time
+    return None, None
+
+def parse_frequency(frequency):
+    if frequency == 'hourly':
+        return 3600  # 1 hour in seconds
+    elif frequency == 'daily':
+        return 86400  # 1 day in seconds
+    elif frequency == 'weekly':
+        return 604800  # 1 week in seconds
+    else:
+        raise ValueError("Invalid frequency")
 
 def compare_files(file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
         diff = difflib.unified_diff(f1.readlines(), f2.readlines())
     return ''.join(diff)
 
-def summarize_diff(diff_text):
+def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
-    combined_text = f"Diff:\n{diff_text}\n\nContext:\n{context_text[:3000]}"  # Adjust the length as needed
+    combined_text = f"Diff:\n{diff_text}\n\nContext - this is the full extracted text of the webpage, as it is now:\n{context_text[:3000]}"  # Adjust the length as needed
+
+    # Print data being sent to OpenAI for debugging
+    #~ print(f"Sending to OpenAI for summarization:\n{combined_text}")
+
     response = openai.ChatCompletion.create(
-        model="gpt-4o",
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Summarize the following diff of two webpages from high level down to all details. Extrude lots and lots of text in your output:\n\n{diff_text}"}
+            {"role": "user", "content": f"Summarize the following changes detected in a webpage. Provide a detailed summary:\n\n{combined_text}"}
         ],
         max_tokens=1500
     )
     return response.choices[0].message['content'].strip()
+
 
 def is_valid_url(url):
     regex = re.compile(
@@ -125,15 +154,21 @@ def save_email_to_disk(job_name, subject, body):
 
 def run_job(name, url):
     latest_file = download_url(url, name)
-    last_file = get_last_file(name)
+    last_file, _ = get_last_file(name)
 
     if last_file:
         diff_text = compare_files(last_file, latest_file)
         if diff_text:
             with open(latest_file, 'r') as f:
                 html_content = f.read()
+
+            # Print diff and HTML content for debugging
+            #~ print(f"Diff Text:\n{diff_text}")
+            #~ print(f"HTML Content:\n{html_content[:500]}")  # Print the first 500 characters for brevity
+
             summary = summarize_diff(diff_text, html_content)
             send_email(name, url, summary, diff_text, load_config()['email'])
+
 
 def list_jobs():
     if not os.path.exists('.gptcron'):
@@ -153,6 +188,7 @@ def list_jobs():
             print(job.strip())
 
 def check_cron():
+    now = time.time()
     if os.path.exists('.gptcron'):
         with open('.gptcron', 'r') as f:
             for line in f:
@@ -163,7 +199,13 @@ def check_cron():
                         command = parts[1]
                         name = parts[2]
                         url = parts[3]
-                        if command == '/usr/bin/python3' and 'gpt_diff.py' in command:
+                        _, last_run_time = get_last_file(name)
+                        if last_run_time is None:
+                            last_run_time = 0  # If no previous run, set to 0
+                        next_run_time = last_run_time + parse_frequency(frequency)
+
+                        if now >= next_run_time:
+                            print(f"Running job: {name}")
                             run_job(name, url)
 
 def setup_argparse():
