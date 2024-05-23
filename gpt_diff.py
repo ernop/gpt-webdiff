@@ -13,6 +13,9 @@ import re
 from bs4 import BeautifulSoup
 import time
 
+# Global notes: never use docstrings
+# Global notes:
+
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
@@ -46,13 +49,10 @@ def send_email(job_name, url, summary, diff_text, to_email):
     msg['From'] = config['email']
     msg['To'] = to_email
 
-    # Save email content to disk
     save_email_to_disk(job_name, subject, body)
 
-    # Print email content to console for debugging
     print(f"Sending Email:\n\tSubject: {subject}\n\t{body}")
 
-    # Using Gmail's SMTP server
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
     smtp_user = config['email']
@@ -104,11 +104,10 @@ def summarize_diff(diff_text, html_content):
     context_text = extract_text_from_html(html_content)
     combined_text = f"Diff:\n\t{diff_text}\n\t{context_text[:3000]}"
 
-    # Print data being sent to OpenAI for debugging
     print(f"Sending to OpenAI for summarization:\n{combined_text}")
 
     response = openai.ChatCompletion.create(
-        model="gpt-4o", #we use a new model in testing "gpt-4o".
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": f"Summarize the following changes detected in a webpage. Provide a one-line summary of the likely reason and meaning for the changes. Then break them down into conceptual groups and give a detailed summary of each. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
@@ -181,7 +180,6 @@ def run_job(name, url):
             with open(latest_file, 'r') as f:
                 html_content = f.read()
 
-            # Print diff and HTML content for debugging
             print(f"Diff Text:\n{diff_text}")
             print(f"HTML Content:\n{html_content[:500]}")  # Print the first 500 characters for brevity
 
@@ -201,7 +199,6 @@ def parse_frequency(frequency):
         raise ValueError("Invalid frequency")
 
 def check_cron():
-
     now = time.time()
     total_jobs = 0
     jobs_with_changes = 0
@@ -216,9 +213,8 @@ def check_cron():
                     if len(parts) >= 4:
                         total_jobs += 1
                         frequency = parts[0]
-                        command = parts[3]
-                        name = parts[4]
-                        url = parts[5]
+                        name = parts[1]
+                        url = parts[2]
                         _, last_run_time = get_last_file(name)
                         if last_run_time is None:
                             last_run_time = 0  # If no previous run, set to 0

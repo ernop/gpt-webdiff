@@ -22,3 +22,9 @@ The <name> field must be an alphanumeric label for this job. the data for that j
 
 
 Can you give me a general set of intro files for this? It should be written in python
+
+The API at openAI we use must be "gpt-4o" (or later models) even if you haven't head of it yet.
+
+The provided script is a web monitoring tool that tracks changes to specific URLs and sends detailed email summaries of detected changes. It works by periodically downloading the web pages, comparing them with previously downloaded versions, and using OpenAI to generate summaries of the differences. It includes functionalities to add, run, list, and check monitoring jobs, each configured with specific frequencies (hourly, daily, weekly).
+
+We will never use Function Docstrings because they are a waste of space.
