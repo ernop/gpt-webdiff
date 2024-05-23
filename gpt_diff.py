@@ -12,12 +12,17 @@ import argparse
 import re
 import time
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
 
-from bs4 import BeautifulSoup
+LOG_FILE = 'gpt_diff.log'
+
+def log_message(message):
+    with open(LOG_FILE, 'a') as log_file:
+        log_file.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
 
 def extract_text_from_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -59,8 +64,10 @@ def send_email(job_name, url, summary, diff_text, to_email):
         server.sendmail(smtp_user, [to_email], msg.as_string())
         server.quit()
         print(f"Email sent to {to_email}")
+        log_message(f"Email sent to {to_email} for job {job_name}")
     except Exception as e:
         print(f"Failed to send email: {e}")
+        log_message(f"Failed to send email to {to_email} for job {job_name}: {e}")
 
 def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"
@@ -75,12 +82,17 @@ def compute_hash(file_path):
     return hasher.hexdigest()
 
 def get_last_file(name):
-    files = sorted([f for f in os.listdir(f"data/{name}") if os.path.isfile(os.path.join(f"data/{name}", f))])
+    job_dir = f"data/{name}"
+    if not os.path.exists(job_dir):
+        return None, None
+
+    files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
     if files:
         last_file = files[-1]
         last_run_time = datetime.strptime(last_file, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp()
-        return os.path.join(f"data/{name}", last_file), last_run_time
+        return os.path.join(job_dir, last_file), last_run_time
     return None, None
+
 
 def parse_frequency(frequency):
     if frequency == 'hourly':
@@ -155,19 +167,20 @@ def save_email_to_disk(job_name, subject, body):
 def run_job(name, url):
     latest_file = download_url(url, name)
     last_file, _ = get_last_file(name)
+    changes_detected = False
 
     if last_file:
         diff_text = compare_files(last_file, latest_file)
         if diff_text:
+            changes_detected = True
             with open(latest_file, 'r') as f:
                 html_content = f.read()
 
-            # Print diff and HTML content for debugging
-            #~ print(f"Diff Text:\n{diff_text}")
-            #~ print(f"HTML Content:\n{html_content[:500]}")  # Print the first 500 characters for brevity
-
             summary = summarize_diff(diff_text, html_content)
             send_email(name, url, summary, diff_text, load_config()['email'])
+
+    return changes_detected
+
 
 
 def list_jobs():
@@ -189,16 +202,23 @@ def list_jobs():
 
 def check_cron():
     now = time.time()
+    total_jobs = 0
+    jobs_with_changes = 0
+    emails_sent = 0
+    emails_failed = 0
+
     if os.path.exists('.gptcron'):
         with open('.gptcron', 'r') as f:
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
+                    #hourly /usr/bin/python3 /mnt/d/proj/gpt-diff/gpt_diff.py run nyt https://www.nytimes.com/
                     if len(parts) >= 4:
+                        total_jobs += 1
                         frequency = parts[0]
-                        command = parts[1]
-                        name = parts[2]
-                        url = parts[3]
+                        command = parts[3]
+                        name = parts[4]
+                        url = parts[5]
                         _, last_run_time = get_last_file(name)
                         if last_run_time is None:
                             last_run_time = 0  # If no previous run, set to 0
@@ -206,7 +226,16 @@ def check_cron():
 
                         if now >= next_run_time:
                             print(f"Running job: {name}")
-                            run_job(name, url)
+                            changes_detected = run_job(name, url)
+                            if changes_detected:
+                                jobs_with_changes += 1
+                                emails_sent += 1  # Assuming email sent for each change detected
+                            else:
+                                #~ emails_failed += 1  # Assuming email failed if no changes detected NO
+                                pass
+
+    log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
+
 
 def setup_argparse():
     parser = argparse.ArgumentParser(
@@ -231,6 +260,8 @@ def setup_argparse():
 if __name__ == "__main__":
     parser = setup_argparse()
     args = parser.parse_args()
+
+    log_message(f"Command called: {args.command}")
 
     if args.command == "add":
         add_job(args.name, args.url, args.frequency)
