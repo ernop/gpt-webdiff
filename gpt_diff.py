@@ -30,8 +30,21 @@ def send_email(subject, body, to_email):
     msg['From'] = config['email']
     msg['To'] = to_email
 
-    with smtplib.SMTP('localhost') as server:
-        server.sendmail(config['email'], [to_email], msg.as_string())
+    # Using Gmail's SMTP server as an example
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    smtp_user = config['email']
+    smtp_password = config['password']
+
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, [to_email], msg.as_string())
+        server.quit()
+        print(f"Email sent to {to_email}")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
 def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"
