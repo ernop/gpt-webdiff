@@ -102,17 +102,16 @@ def compare_files(file1, file2):
 def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
-    #~ combined_text = f"Diff:\n{diff_text}\n\nContext:\n{context_text[:3000]}"  # Adjust the length as needed
-    combined_text = f"Diff:\n{diff_text}\n\nContext - this is the full extracted text of the webpage, as it is now:\n{context_text[:3000]}"
+    combined_text = f"Diff:\n\t{diff_text}\n\t{context_text[:3000]}"
 
     # Print data being sent to OpenAI for debugging
     print(f"Sending to OpenAI for summarization:\n{combined_text}")
 
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-4o", #we use a new model in testing "gpt-4o".
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Summarize the following changes detected in a webpage. Provide a detailed summary:\n\n{combined_text}"}
+            {"role": "user", "content": f"Summarize the following changes detected in a webpage. Provide a one-line summary of the likely reason and meaning for the changes. Then break them down into conceptual groups and give a detailed summary of each. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
         ],
         max_tokens=1500
     )
