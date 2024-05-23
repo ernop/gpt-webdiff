@@ -1,7 +1,5 @@
 import os
 import sys
-import re
-import argparse
 import subprocess
 import hashlib
 import difflib
@@ -10,9 +8,12 @@ import json
 from email.mime.text import MIMEText
 from datetime import datetime
 import openai
+import argparse
+import re
 
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
+VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
 
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
@@ -21,8 +22,6 @@ def load_config():
 def load_apikey():
     with open(API_KEY_FILE, 'r') as f:
         return f.read().strip()
-
-
 
 def send_email(subject, body, to_email):
     config = load_config()
@@ -35,7 +34,7 @@ def send_email(subject, body, to_email):
         server.sendmail(config['email'], [to_email], msg.as_string())
 
 def download_url(url, name):
-    output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d%H%M%S')}.html"
+    output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     subprocess.run(['wget', '-O', output_file, url])
     return output_file
@@ -57,15 +56,29 @@ def compare_files(file1, file2):
 
 def summarize_diff(diff_text):
     openai.api_key = load_apikey()
-    response = openai.Completion.create(
-        engine="gpt-4o",
-        prompt=f"Summarize the following diff of two webpages from high level down to all details. Extrude lots and lots of text in your output:\n\n{diff_text}",
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": f"Summarize the following diff of two webpages from high level down to all details. Extrude lots and lots of text in your output:\n\n{diff_text}"}
+        ],
         max_tokens=1500
     )
-    return response.choices[0].text.strip()
+    return response.choices[0].message['content'].strip()
+
+def is_valid_url(url):
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
+        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...or ipv6
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return re.match(regex, url) is not None
 
 def add_job(name, url, frequency):
-    if not name.isalphanumeric():
+    if not name.isalnum():
         print("Error: Job name must be alphanumeric.")
         sys.exit(1)
 
@@ -73,14 +86,20 @@ def add_job(name, url, frequency):
         print("Error: Invalid URL format.")
         sys.exit(1)
 
-    cron_entry = f"{frequency} /usr/bin/python3 /mnt/d/proj/gpt-diff/gpt-diff/gpt_diff.py run {name} {url}\n"
+    if frequency not in VALID_FREQUENCIES:
+        print(f"Error: Invalid frequency. Valid options are: {', '.join(VALID_FREQUENCIES)}")
+        sys.exit(1)
+
+    cron_entry = f"{frequency} /usr/bin/python3 /mnt/d/proj/gpt-diff/gpt_diff.py run {name} {url}\n"
     with open('.gptcron', 'a') as f:
         f.write(cron_entry)
     print(f"Job '{name}' added successfully.")
 
 def run_job(name, url):
-    latest_file = download_url(url, name)
+    import ipdb;ipdb.set_trace()
     last_file = get_last_file(name)
+    latest_file = download_url(url, name)
+
 
     if last_file:
         diff_text = compare_files(last_file, latest_file)
@@ -106,7 +125,6 @@ def list_jobs():
             print(job.strip())
 
 def check_cron():
-    import ipdb;ipdb.set_trace()
     if os.path.exists('.gptcron'):
         with open('.gptcron', 'r') as f:
             for line in f:
@@ -120,19 +138,6 @@ def check_cron():
                         if command == '/usr/bin/python3' and 'gpt_diff.py' in command:
                             run_job(name, url)
 
-
-
-def is_valid_url(url):
-    regex = re.compile(
-        r'^(?:http|ftp)s?://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
-        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...or ipv6
-        r'(?::\d+)?'  # optional port
-        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    return re.match(regex, url) is not None
-
 def setup_argparse():
     parser = argparse.ArgumentParser(
         description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.'
@@ -142,7 +147,7 @@ def setup_argparse():
     add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: add <name> <URL> <frequency>')
     add_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
     add_parser.add_argument('url', type=str, help='URL to monitor')
-    add_parser.add_argument('frequency', type=str, help='Frequency to check the URL (e.g., daily, hourly, weekly)')
+    add_parser.add_argument('frequency', type=str, choices=VALID_FREQUENCIES, help='Frequency to check the URL (e.g., daily, hourly, weekly)')
 
     run_parser = subparsers.add_parser('run', help='Run the monitoring for a specific URL. Usage: run <name> <URL>')
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
