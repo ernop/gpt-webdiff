@@ -342,7 +342,7 @@ def check_cron():
 
                         if now >= next_run_time:
                             log_message(f"Running job: {name}")
-                            changes_detected= run_job(name, url)
+                            changes_detected= run_job(name)
                             if changes_detected:
                                 jobs_with_changes += 1
                                 emails_sent += 1
