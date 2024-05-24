@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Global notes: never use docstrings. Never remove these - they are guides for future rewrites when I paste in the entire file.
 import os
 import sys
@@ -46,7 +48,7 @@ def send_email(job_name, url, summary, diff_text, to_email):
     msg['From'] = config['email']
     msg['To'] = to_email
     save_email_to_disk(job_name, subject, body)
-    print(f"Sending Email:\n\tSubject: {subject}\n\t{body}")
+    log_message(f"Sending Email: Subject: {subject}, Body: {body[:1000]}...")
 
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
@@ -68,7 +70,8 @@ def send_email(job_name, url, summary, diff_text, to_email):
 def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    subprocess.run(['wget', '-O', output_file, url])
+    user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    subprocess.run(['wget', '-O', output_file, '--user-agent', user_agent, url])
     return output_file
 
 def get_last_file(name):
@@ -90,13 +93,22 @@ def compare_files(file1, file2):
 def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
-    combined_text = f"Diff:\n\t{diff_text}\n\t{context_text[:3000]}"
-    print(f"Sending to OpenAI for summarization:\n{combined_text}")
+
+    # Truncate the diff_text and context_text to fit within the allowed limit
+    max_length = 1048576  # Maximum allowed length
+    combined_text = f"Diff:\n{diff_text}\n{context_text[:3000]}"
+
+    # Ensure the combined text is within the limit
+    if len(combined_text) > max_length:
+        combined_text = combined_text[:max_length]
+
+    print(f"Sending to OpenAI for summarization:\n{combined_text[:500]}...")  # Print the first 500 characters for brevity
+
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Summarize the following changes detected in a webpage. Provide a one-line summary of the likely reason and meaning for the changes. Then break them down into conceptual groups and give a detailed summary of each. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
+            {"role": "user", "content": f"Summarize the following changes detected in a webpage, mainly focusing on the human-meaningful changes rather than CSS or javascript ones. Provide a one-line summary of the likely reason and meaning for each of the relevant changes. Then break them down into conceptual groups and give a detailed summary of each. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
         ],
         max_tokens=1500
     )
@@ -126,7 +138,7 @@ def add_job(name, url, frequency):
         print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly'")
         sys.exit(1)
 
-    cron_entry = f"{frequency} run {name} {url}\n"
+    cron_entry = f"{frequency} {name} {url}\n"
     with open('.gptcron', 'a') as f:
         f.write(cron_entry)
     print(f"Job '{name}' added successfully.")
@@ -134,7 +146,9 @@ def add_job(name, url, frequency):
 
 def log_message(message):
     with open(LOG_FILE, 'a') as log_file:
-        log_file.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
+        msg=f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n"
+        print(msg)
+        log_file.write(msg)
 
 def list_jobs():
     if not os.path.exists('.gptcron'):
@@ -164,6 +178,7 @@ def run_job(name, url):
             changes_detected = True
             with open(latest_file, 'r') as f:
                 html_content = f.read()
+            log_message(f"Detected changes for job {name} at {url}")
             summary = summarize_diff(diff_text, html_content)
             send_email(name, url, summary, diff_text, load_config()['email'])
 
@@ -193,11 +208,14 @@ def check_cron():
                         next_run_time = last_run_time + parse_frequency(frequency)
 
                         if now >= next_run_time:
-                            print(f"Running job: {name}")
+                            log_message(f"Running job: {name}")
                             changes_detected= run_job(name, url)
                             if changes_detected:
                                 jobs_with_changes += 1
                                 emails_sent += 1
+                                log_message(f"Changes were detected for job: {name}")
+                            else:
+                                log_message(f"No changes detected for job: {name}")
 
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
 
@@ -220,17 +238,23 @@ def setup_argparse():
     return parser
 
 if __name__ == "__main__":
-    parser = setup_argparse()
-    args = parser.parse_args()
-    log_message(f"Command called: {args.command}")
+    try:
+        parser = setup_argparse()
+        args = parser.parse_args()
+        log_message(f"Command called: {args.command}")
 
-    if args.command == "add":
-        add_job(args.name, args.url, args.frequency)
-    elif args.command == "run":
-        run_job(args.name, args.url)
-    elif args.command == "check_cron":
-        check_cron()
-    elif args.command == "list":
-        list_jobs()
-    else:
-        parser.print_help()
+        if args.command == "add":
+            add_job(args.name, args.url, args.frequency)
+        elif args.command == "run":
+            run_job(args.name, args.url)
+        elif args.command == "check_cron":
+            check_cron()
+        elif args.command == "list":
+            list_jobs()
+        elif args.command == "remove":
+            remove_job(args.name)
+        else:
+            parser.print_help()
+    except Exception as e:
+        log_message(f"Unexpected error: {e}")
+        raise
