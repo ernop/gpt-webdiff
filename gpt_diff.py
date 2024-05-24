@@ -59,7 +59,7 @@ def send_email(job_name, url, summary, diff_text, to_email):
             <style>
                 body {{ font-family: Arial, sans-serif; }}
                 h1 {{ color: #333; }}
-                .summary {{ margin-bottom: 20px; }}
+                .summary {{ margin-bottom: 20px; font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
                 .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
                 .job-details {{ margin-bottom: 20px; }}
                 .job-details b {{ display: inline-block; width: 100px; }}
@@ -73,7 +73,7 @@ def send_email(job_name, url, summary, diff_text, to_email):
             </div>
             <div class="summary">
                 <h2>Summary:</h2>
-                <p>{summary}</p>
+                <pre>{summary}</pre>
             </div>
             <div class="diff">
                 <h2>Diff:</h2>
