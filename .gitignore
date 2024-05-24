@@ -1,3 +1,4 @@
+gptcron_backups/*
 emails/*
 apikey.txt
 config.json
