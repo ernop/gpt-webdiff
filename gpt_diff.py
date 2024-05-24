@@ -1,3 +1,4 @@
+# Global notes: never use docstrings. Never remove these - they are guides for future rewrites when I paste in the entire file.
 import os
 import sys
 import subprocess
@@ -13,17 +14,13 @@ import re
 from bs4 import BeautifulSoup
 import time
 
-# Global notes: never use docstrings
-# Global notes:
-
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
 LOG_FILE = 'gpt_diff.log'
 
 def extract_text_from_html(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-    return soup.get_text(separator=' ', strip=True)
+    return BeautifulSoup(html_content, 'html.parser').get_text(separator=' ', strip=True)
 
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
@@ -48,9 +45,7 @@ def send_email(job_name, url, summary, diff_text, to_email):
     msg['Subject'] = subject
     msg['From'] = config['email']
     msg['To'] = to_email
-
     save_email_to_disk(job_name, subject, body)
-
     print(f"Sending Email:\n\tSubject: {subject}\n\t{body}")
 
     smtp_server = "smtp.gmail.com"
@@ -76,12 +71,6 @@ def download_url(url, name):
     subprocess.run(['wget', '-O', output_file, url])
     return output_file
 
-def compute_hash(file_path):
-    hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        hasher.update(f.read())
-    return hasher.hexdigest()
-
 def get_last_file(name):
     job_dir = f"data/{name}"
     if not os.path.exists(job_dir):
@@ -96,16 +85,13 @@ def get_last_file(name):
 
 def compare_files(file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
-        diff = difflib.unified_diff(f1.readlines(), f2.readlines())
-    return ''.join(diff)
+        return ''.join(difflib.unified_diff(f1.readlines(), f2.readlines()))
 
 def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
     combined_text = f"Diff:\n\t{diff_text}\n\t{context_text[:3000]}"
-
     print(f"Sending to OpenAI for summarization:\n{combined_text}")
-
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
@@ -118,30 +104,29 @@ def summarize_diff(diff_text, html_content):
 
 def is_valid_url(url):
     regex = re.compile(
-        r'^(?:http|ftp)s?://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'  # ...or ipv4
-        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ...or ipv6
-        r'(?::\d+)?'  # optional port
+        r'^(?:http|ftp)s?://'
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
+        r'localhost|'
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|'
+        r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'
+        r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     return re.match(regex, url) is not None
 
 def add_job(name, url, frequency):
-    if not name.isalnum():
-        print("Error: Job name must be alphanumeric.")
+    if not re.match(r'^[a-zA-Z0-9-]+$', name):
+        print(f"Error: Invalid job name: name must be alphanumeric.")
         sys.exit(1)
-
+    if not url.startswith(('http://', 'https://')):
+        url = 'http://' + url
     if not is_valid_url(url):
         print("Error: Invalid URL format.")
         sys.exit(1)
-
     if frequency not in VALID_FREQUENCIES:
-        print(f"Error: Invalid frequency. Valid options are: {', '.join(VALID_FREQUENCIES)}")
+        print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly'")
         sys.exit(1)
 
-    cron_entry = f"{frequency} /usr/bin/python3 /mnt/d/proj/gpt-diff/gpt_diff.py run {name} {url}\n"
-
+    cron_entry = f"{frequency} run {name} {url}\n"
     with open('.gptcron', 'a') as f:
         f.write(cron_entry)
     print(f"Job '{name}' added successfully.")
@@ -179,24 +164,13 @@ def run_job(name, url):
             changes_detected = True
             with open(latest_file, 'r') as f:
                 html_content = f.read()
-
-            print(f"Diff Text:\n{diff_text}")
-            print(f"HTML Content:\n{html_content[:500]}")  # Print the first 500 characters for brevity
-
             summary = summarize_diff(diff_text, html_content)
             send_email(name, url, summary, diff_text, load_config()['email'])
 
     return changes_detected
 
 def parse_frequency(frequency):
-    if frequency == 'hourly':
-        return 3600  # 1 hour in seconds
-    elif frequency == 'daily':
-        return 86400  # 1 day in seconds
-    elif frequency == 'weekly':
-        return 604800  # 1 week in seconds
-    else:
-        raise ValueError("Invalid frequency")
+    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800}[frequency]
 
 def check_cron():
     now = time.time()
@@ -210,31 +184,25 @@ def check_cron():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
-                    if len(parts) >= 4:
+                    if len(parts) >= 3:
                         total_jobs += 1
-                        frequency = parts[0]
-                        name = parts[1]
-                        url = parts[2]
+                        frequency, name, url = parts[0], parts[1], parts[2]
                         _, last_run_time = get_last_file(name)
                         if last_run_time is None:
-                            last_run_time = 0  # If no previous run, set to 0
+                            last_run_time = 0
                         next_run_time = last_run_time + parse_frequency(frequency)
 
                         if now >= next_run_time:
                             print(f"Running job: {name}")
-                            changes_detected = run_job(name, url)
+                            changes_detected= run_job(name, url)
                             if changes_detected:
                                 jobs_with_changes += 1
-                                emails_sent += 1  # Assuming email sent for each change detected
-                            else:
-                                pass
+                                emails_sent += 1
 
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
 
 def setup_argparse():
-    parser = argparse.ArgumentParser(
-        description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.'
-    )
+    parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
 
     add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: add <name> <URL> <frequency>')
@@ -246,15 +214,14 @@ def setup_argparse():
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
     run_parser.add_argument('url', type=str, help='URL to monitor')
 
-    subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs. Usage: check_cron')
-    subparsers.add_parser('list', help='List all monitoring jobs. Usage: list')
+    subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs.')
+    subparsers.add_parser('list', help='List all monitoring jobs.')
 
     return parser
 
 if __name__ == "__main__":
     parser = setup_argparse()
     args = parser.parse_args()
-
     log_message(f"Command called: {args.command}")
 
     if args.command == "add":
