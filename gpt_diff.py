@@ -18,7 +18,7 @@ import time
 
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
-VALID_FREQUENCIES = ['daily', 'hourly', 'weekly']
+VALID_FREQUENCIES = ['minutely', 'daily', 'hourly', 'weekly']
 LOG_FILE = 'gpt_diff.log'
 
 def extract_text_from_html(html_content):
@@ -42,8 +42,36 @@ def save_email_to_disk(job_name, subject, body):
 def send_email(job_name, url, summary, diff_text, to_email):
     config = load_config()
     subject = f"Changes detected for {job_name} at {url}"
-    body = f"Job: {job_name}\nURL: {url}\n\nSummary:\n{summary}\n\nDiff:\n{diff_text}"
-    msg = MIMEText(body)
+    body = f"""
+    <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; }}
+                h1 {{ color: #333; }}
+                .summary {{ margin-bottom: 20px; }}
+                .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
+                .job-details {{ margin-bottom: 20px; }}
+                .job-details b {{ display: inline-block; width: 100px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Changes Detected</h1>
+            <div class="job-details">
+                <p><b>Job:</b> {job_name}</p>
+                <p><b>URL:</b> <a href="{url}">{url}</a></p>
+            </div>
+            <div class="summary">
+                <h2>Summary:</h2>
+                <p>{summary}</p>
+            </div>
+            <div class="diff">
+                <h2>Diff:</h2>
+                <pre>{diff_text}</pre>
+            </div>
+        </body>
+    </html>
+    """
+    msg = MIMEText(body, 'html')
     msg['Subject'] = subject
     msg['From'] = config['email']
     msg['To'] = to_email
@@ -96,7 +124,7 @@ def summarize_diff(diff_text, html_content):
 
     # Truncate the diff_text and context_text to fit within the allowed limit
     max_length = 1048576  # Maximum allowed length
-    combined_text = f"Diff:\n{diff_text}\n{context_text[:3000]}"
+    combined_text = f"Diff:\n{diff_text}\n{context_text}"[:10000]
 
     # Ensure the combined text is within the limit
     if len(combined_text) > max_length:
@@ -135,7 +163,7 @@ def add_job(name, url, frequency):
         print("Error: Invalid URL format.")
         sys.exit(1)
     if frequency not in VALID_FREQUENCIES:
-        print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly'")
+        print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly', 'minutely'")
         sys.exit(1)
 
     cron_entry = f"{frequency} {name} {url}\n"
@@ -185,7 +213,7 @@ def run_job(name, url):
     return changes_detected
 
 def parse_frequency(frequency):
-    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800}[frequency]
+    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely':59}[frequency]
 
 def check_cron():
     now = time.time()
@@ -199,6 +227,7 @@ def check_cron():
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
+                    #~ import ipdb;ipdb.set_trace()
                     if len(parts) >= 3:
                         total_jobs += 1
                         frequency, name, url = parts[0], parts[1], parts[2]
@@ -216,6 +245,8 @@ def check_cron():
                                 log_message(f"Changes were detected for job: {name}")
                             else:
                                 log_message(f"No changes detected for job: {name}")
+                    else:
+                        print('bad job entry:',line)
 
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
 
