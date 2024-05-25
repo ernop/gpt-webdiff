@@ -170,30 +170,6 @@ def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
 
-    # Truncate the diff_text and context_text to fit within the allowed limit
-    max_length = 1048576  # Maximum allowed length
-    combined_text = f"Diff:\n{diff_text}\n{context_text}"[:10000]
-
-    # Ensure the combined text is within the limit
-    if len(combined_text) > max_length:
-        combined_text = combined_text[:max_length]
-
-    print(f"Sending to OpenAI for summarization:\n{combined_text[:500]}...")  # Print the first 500 characters for brevity
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Summarize the following changes detected in a webpage, mainly focusing on the human-meaningful changes rather than CSS or javascript ones. Provide a one-line summary of the likely reason and meaning for each of the relevant changes. You should use embedded images in html format and give details about what changed, for example, you can say 'the old image <image link> was replaced with the new image <new image link> etc. The overall goal is to help the reader of the email these will go into to really get the meaningful parts of the change, you know whgat I mean? Finally break down the changes into conceptual groups and give a detailed summary of each. Use <h2> and <h3> as the main header format type, for things such as title and headers, according to your preference. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
-        ],
-        max_tokens=1500
-    )
-    return response.choices[0].message['content'].strip()
-
-def summarize_diff(diff_text, html_content):
-    openai.api_key = load_apikey()
-    context_text = extract_text_from_html(html_content)
-
     combined_text = f"Diff:\n{diff_text}\n{context_text}"[:20000]
 
     prompt = f"""
