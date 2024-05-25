@@ -1,0 +1,7 @@
+*/1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gpt_diff.py "/mnt/d/proj/gpt-webdiff/gpt-webdiff/" check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1
+
+
+#this will hit it every minute. For testing this is fine.
+#Key testing methodology: clone the repo, fill in the config.json, fill in apikey.txt.
+#THEN GO TO ANOTHER DIRECTORY and run things like /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gpt_diff.py add test google.com
+#if you do it in the same directory, it's not really testing what cron will do, since cron runs from some unknown wild crazy directory.

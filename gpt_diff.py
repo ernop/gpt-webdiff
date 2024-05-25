@@ -17,12 +17,27 @@ from bs4 import BeautifulSoup
 import time
 import shutil
 
-CRON_FILE = '.gptcron'
+def load_config():
+    with open(CONFIG_FILE, 'r') as f:
+        return json.load(f)
+
+if len(sys.argv)<=1:
+    print("you have to submit the basedir to operate in as the first arg, the place you checked out the repo.")
+    sys.exit(2)
+
+basedir=sys.argv[1]
+if not os.path.exists(basedir) and not os.path.isdir(basedir):
+    print("bad basedir submitted as first argument.")
+    sys.exit(1)
+
+os.chdir(basedir)
+
 BACKUP_DIR = 'gptcron_backups'
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['minutely', 'daily', 'hourly', 'weekly']
 LOG_FILE = 'gpt_diff.log'
+CRON_FILE = '.gptcron'
 
 def parse_cron_file():
     jobs = []
@@ -54,9 +69,7 @@ def backup_cron_file():
 def extract_text_from_html(html_content):
     return BeautifulSoup(html_content, 'html.parser').get_text(separator=' ', strip=True)
 
-def load_config():
-    with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
+
 
 def load_apikey():
     with open(API_KEY_FILE, 'r') as f:
@@ -187,6 +200,11 @@ def summarize_diff(diff_text, html_content):
 You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones. Provide a one-line summary of the likely reason and meaning for each relevant change. Use HTML format to include details about what changed, including embedded images when applicable. Group the changes conceptually using <h2> and <h3> tags for titles and headers. You should use embedded images in html format and give details about what changed, for example, you can say 'the old image <image link> was replaced with the new image <new image link> etc. The overall goal is to help the reader of the email understand the overall big picture and sense and strategy behind the change. Also, start your response with a sentence like: The change important is N <where N is a number from 1 to 10, 1 being very insignificant, 10 being extremely important.> and give reasons. That way this serves as a kind of intro sentence. Do not say things like "some details were removed". Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. Do you get it? INCLUDE ALL DETAILS don't just summarize them. If there are specifics, give them.
 
 Here are some examples of how to generate summaries.
+
+Example 0:
+Actual Output: The change importance is 3. The change primarily updates the page to include a new list of articles, reflecting recent news and content updates.
+Evaluation: <This is very bad, since the text does not include at least brief names or subjects of the articles. It's very bad since it's so generic, saying boring things like "recent news and content updates". Such an update is useless to me - instead, it should highlight specific areas of change.
+Good output: The change importance is 3. The change primarily updates the page with an article about Beijing, as well as focusing on more international news on Gaza and Egypt, rather than the previous story about local NYC politics. This might reflect the changing timezone, as now, it's late in the day for the US, while Europe is just waking up and may be more interested in international news.
 
 Example 1:
 Diff:
@@ -406,6 +424,7 @@ def setup_argparse():
 
 if __name__ == "__main__":
     try:
+        sys.argv = sys.argv[1:]
         parser = setup_argparse()
         args = parser.parse_args()
         log_message(f"Command called: {args.command}")

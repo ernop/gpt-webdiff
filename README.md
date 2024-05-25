@@ -1,3 +1,5 @@
+This now works if installed via cron. See the *_example files in this dir.
+
 I want to make a command line program for "gpt-diff". It should be like "gpt-diff add <name> <URL> [daily|hourly|weekly] etc.". That would do the following:
 
 1. set up a periodic repeated action to call a wget on that URL and save the results to a file. Then it would compare the current results to the last results, if any, using gpt-4o. So that if the first time, the page said one thing, the 2nd time, the page would say another thing.
