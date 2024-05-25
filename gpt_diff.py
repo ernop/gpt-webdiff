@@ -24,6 +24,25 @@ API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['minutely', 'daily', 'hourly', 'weekly']
 LOG_FILE = 'gpt_diff.log'
 
+def parse_cron_file():
+    jobs = []
+    if not os.path.exists(CRON_FILE):
+        return jobs
+
+    with open(CRON_FILE, 'r') as f:
+        lines = f.readlines()
+
+    for line in lines:
+        if line.strip() and not line.startswith('#'):
+            parts = line.split()
+            if len(parts) >= 3:
+                frequency = parts[0]
+                name = parts[1]
+                url = parts[2]
+                date_added = parts[3] if len(parts) > 3 else "00000000000000"
+                jobs.append({"frequency": frequency, "name": name, "url": url, "date_added": date_added})
+    return jobs
+
 def backup_cron_file():
     if not os.path.exists(CRON_FILE):
         return
@@ -68,8 +87,8 @@ def send_email(job_name, url, summary, diff_text, to_email):
         <body>
             <h1>Changes Detected</h1>
             <div class="job-details">
-                <p><b>Job:</b> {job_name}</p>
-                <p><b>URL:</b> <a href="{url}">{url}</a></p>
+                <h3>Job:</h3> {job_name}
+                <h3>URL:</h3> <a href="{url}">{url}</a>
             </div>
             <div class="summary">
                 <h2>Summary:</h2>
@@ -147,7 +166,7 @@ def summarize_diff(diff_text, html_content):
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Summarize the following changes detected in a webpage, mainly focusing on the human-meaningful changes rather than CSS or javascript ones. Provide a one-line summary of the likely reason and meaning for each of the relevant changes. Then break them down into conceptual groups and give a detailed summary of each. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
+            {"role": "user", "content": f"Summarize the following changes detected in a webpage, mainly focusing on the human-meaningful changes rather than CSS or javascript ones. Provide a one-line summary of the likely reason and meaning for each of the relevant changes. You should use embedded images in html format and give details about what changed, for example, you can say 'the old image <image link> was replaced with the new image <new image link> etc. The overall goal is to help the reader of the email these will go into to really get the meaningful parts of the change, you know whgat I mean? Finally break down the changes into conceptual groups and give a detailed summary of each. Use <h2> and <h3> as the main header format type, for things such as title and headers, according to your preference. What follows are the line-by-line diffs, and then the full context of the page:\n\t{combined_text}"}
         ],
         max_tokens=1500
     )
@@ -185,20 +204,14 @@ def add_job(name, url, frequency):
     log_message(f"Job added: {name}, {url}, {frequency}")
 
 def remove_job(name):
-    if not os.path.exists(CRON_FILE):
-        print("No jobs found.")
-        return
-
+    jobs = parse_cron_file()
     backup_cron_file()
-    with open(CRON_FILE, 'r') as f:
-        jobs = f.readlines()
-
     with open(CRON_FILE, 'w') as f:
         for job in jobs:
-            if not job.startswith(name):
-                f.write(job)
+            if job["name"] != name:
+                f.write(f"{job['frequency']} {job['name']} {job['url']} {job['date_added']}\n")
             else:
-                log_message(f"Job removed: {job.strip()}")
+                log_message(f"Job removed: {job['name']}")
 
     print(f"Job '{name}' removed successfully.")
 
@@ -209,97 +222,56 @@ def log_message(message):
         log_file.write(msg)
 
 def list_jobs(sort_by=None):
-    if not os.path.exists(CRON_FILE):
-        print("No jobs found.")
-        return
-
-    with open(CRON_FILE, 'r') as f:
-        jobs = f.readlines()
-
+    jobs = parse_cron_file()
     if not jobs:
         print("No jobs found.")
         return
 
-    job_entries = []
-    for job in jobs:
-        if job.strip() and not job.startswith('#'):
-            parts = job.split()
-            frequency, name, url = parts[0], parts[1], parts[2]
-            date_added = parts[3] if len(parts) > 3 else "00000000000000"
-            job_entries.append((frequency, name, url, date_added))
-
     if sort_by == "date":
-        job_entries.sort(key=lambda x: x[3])
+        jobs.sort(key=lambda x: x["date_added"])
     elif sort_by == "url":
-        job_entries.sort(key=lambda x: x[2].split('//')[-1])
+        jobs.sort(key=lambda x: x["url"].split('//')[-1])
     elif sort_by == "name":
-        job_entries.sort(key=lambda x: x[1])
+        jobs.sort(key=lambda x: x["name"].lower())
 
-    # Calculate max lengths for each column
-    max_lengths = [max(len(str(entry[i])) for entry in job_entries) for i in range(4)]
+    max_lengths = [max(len(str(job[key])) for job in jobs) for key in ["frequency", "name", "url", "date_added"]]
 
     print("Current monitoring jobs:")
     print(f"{'Frequency'.ljust(max_lengths[0])}  {'Name'.ljust(max_lengths[1])}  {'URL'.ljust(max_lengths[2])}  {'Date Added'.ljust(max_lengths[3])}")
     print("=" * (sum(max_lengths) + 6))
-    for job in job_entries:
-        print(f"{job[0].ljust(max_lengths[0])}  {job[1].ljust(max_lengths[1])}  {job[2].ljust(max_lengths[2])}  {job[3].ljust(max_lengths[3])}")
-
+    for job in jobs:
+        print(f"{job['frequency'].ljust(max_lengths[0])}  {job['name'].ljust(max_lengths[1])}  {job['url'].ljust(max_lengths[2])}  {job['date_added'].ljust(max_lengths[3])}")
 
 def save_sorted_jobs(sort_by):
-    if not os.path.exists(CRON_FILE):
-        print("No jobs found.")
-        return
-
-    with open(CRON_FILE, 'r') as f:
-        jobs = f.readlines()
-
+    jobs = parse_cron_file()
     if not jobs:
         print("No jobs found.")
         return
 
-    job_entries = []
-    for job in jobs:
-        if job.strip() and not job.startswith('#'):
-            parts = job.split()
-            frequency, name, url = parts[0], parts[1], parts[2]
-            date_added = parts[3] if len(parts) > 3 else "00000000000000"
-            job_entries.append((frequency, name, url, date_added))
-
     if sort_by == "date":
-        job_entries.sort(key=lambda x: x[3])
+        jobs.sort(key=lambda x: x["date_added"])
     elif sort_by == "url":
-        job_entries.sort(key=lambda x: x[2].split('//')[-1])
+        jobs.sort(key=lambda x: x["url"].split('//')[-1])
     elif sort_by == "name":
-        job_entries.sort(key=lambda x: x[1].lower())
+        jobs.sort(key=lambda x: x["name"])
 
     backup_cron_file()
     with open(CRON_FILE, 'w') as f:
-        for job in job_entries:
-            f.write(f"{job[0]} {job[1]} {job[2]} {job[3]}\n")
+        for job in jobs:
+            f.write(f"{job['frequency']} {job['name']} {job['url']} {job['date_added']}\n")
 
     print(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
     log_message(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
 
 def run_job(name):
-    if not os.path.exists(CRON_FILE):
-        print(f"No jobs found.")
-        return False
+    jobs = parse_cron_file()
+    job = next((job for job in jobs if job["name"] == name), None)
 
-    with open(CRON_FILE, 'r') as f:
-        jobs = f.readlines()
-
-    url = None
-    for job in jobs:
-        if job.strip() and not job.startswith('#'):
-            parts = job.split()
-            if parts[1] == name:
-                url = parts[2]
-                break
-
-    if not url:
+    if not job:
         print(f"No job found with the name {name}")
         return False
 
+    url = job["url"]
     last_file, _ = get_last_file(name)
     latest_file = download_url(url, name)
     changes_detected = False
@@ -367,12 +339,14 @@ def setup_argparse():
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
 
     subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs.')
-    subparsers.add_parser('list', help='List all monitoring jobs.')
+
+    list_parser = subparsers.add_parser('list', help='List all monitoring jobs.')
+    list_parser.add_argument('--sort_by', choices=['date', 'url', 'name'], help='Sort jobs by date, url, or name')
 
     remove_parser = subparsers.add_parser('remove', help='Remove a job. Usage: remove <name>')
     remove_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
 
-    save_parser = subparsers.add_parser('save_sorted', help='Save sorted jobs to a file. Usage: save_sorted --sort_by [url|date|name]')
+    save_parser = subparsers.add_parser('save_sorted', help='Save sorted jobs to a file. Usage: save_sorted --sort_by <sort_by>')
     save_parser.add_argument('--sort_by', choices=['date', 'url', 'name'], required=True, help='Sort jobs by date, url, or name')
 
     return parser
@@ -382,7 +356,7 @@ if __name__ == "__main__":
         parser = setup_argparse()
         args = parser.parse_args()
         log_message(f"Command called: {args.command}")
-        #~ import ipdb;ipdb.set_trace()
+
         if args.command == "add":
             add_job(args.name, args.url, args.frequency)
         elif args.command == "run":
@@ -390,7 +364,7 @@ if __name__ == "__main__":
         elif args.command == "check_cron":
             check_cron()
         elif args.command == "list":
-            list_jobs()
+            list_jobs(args.sort_by)
         elif args.command == "remove":
             remove_job(args.name)
         elif args.command == "save_sorted":
