@@ -69,8 +69,7 @@ def save_email_to_disk(job_name, subject, body):
     with open(filename, 'w') as f:
         f.write(f"Subject: {subject}\n\n{body}")
 
-def send_email(job_name, url, summary, diff_text, to_email):
-    config = load_config()
+def create_email_content(job_name, url, summary, diff_text):
     subject = f"Changes detected for {job_name} at {url}"
     body = f"""
     <html>
@@ -82,6 +81,8 @@ def send_email(job_name, url, summary, diff_text, to_email):
                 .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
                 .job-details {{ margin-bottom: 20px; }}
                 .job-details b {{ display: inline-block; width: 100px; }}
+                img {{ max-width: 100%; height: auto; }}
+                .with-max-width {{ max-width: 200px; max-height:200px;}}
             </style>
         </head>
         <body>
@@ -101,6 +102,10 @@ def send_email(job_name, url, summary, diff_text, to_email):
         </body>
     </html>
     """
+    return subject, body
+
+def send_email(job_name, subject, body, to_email):
+    config = load_config()
     msg = MIMEText(body, 'html')
     msg['Subject'] = subject
     msg['From'] = config['email']
@@ -170,6 +175,53 @@ def summarize_diff(diff_text, html_content):
         ],
         max_tokens=1500
     )
+    return response.choices[0].message['content'].strip()
+
+def summarize_diff(diff_text, html_content):
+    openai.api_key = load_apikey()
+    context_text = extract_text_from_html(html_content)
+
+    combined_text = f"Diff:\n{diff_text}\n{context_text}"[:20000]
+
+    prompt = f"""
+You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones. Provide a one-line summary of the likely reason and meaning for each relevant change. Use HTML format to include details about what changed, including embedded images when applicable. Group the changes conceptually using <h2> and <h3> tags for titles and headers. You should use embedded images in html format and give details about what changed, for example, you can say 'the old image <image link> was replaced with the new image <new image link> etc. The overall goal is to help the reader of the email understand the overall big picture and sense and strategy behind the change. Also, start your response with a sentence like: The change important is N <where N is a number from 1 to 10, 1 being very insignificant, 10 being extremely important.> and give reasons. That way this serves as a kind of intro sentence. Do not say things like "some details were removed". Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. Do you get it? INCLUDE ALL DETAILS don't just summarize them. If there are specifics, give them.
+
+Here are some examples of how to generate summaries.
+
+Example 1:
+Diff:
+- Old text: "The sky is blue."
+- New text: "The sky is clear and blue."
+
+<In this case, the importance would be 3. If the user changed it from 'blue' to 'purple with horrible lightning' then that would be an importance of at least 7, probably, depending on the reasoning and reality of the change>
+
+Summary:
+<h2>Content Updates</h2>
+<p>The description of the sky was changed from blue to "clear and blue"</p> <== it's very important to be specific, don't just generically describe the change, give the SPECIFIC change about what was added / removed.
+
+Example 2:
+Diff:
+- Old image: <img src="old_image.jpg" alt="old image">
+- New image: <img src="new_image.jpg" alt="new image">
+
+Summary:
+<h2>New Image Introduced</h2>
+<p> The page changed from using this image: <img class="with-max-width" src="old_image.jpg" alt="old image"> to this image: <img  class="with-max-width"  src="new_image.jpg" alt="new image"></p> <== note that we added fixed max-width css to the images so they wouldn't overload the user's browser.
+
+Now, here is the diff and context you need to summarize:
+
+{combined_text}
+"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=3500
+    )
+
     return response.choices[0].message['content'].strip()
 
 def is_valid_url(url):
@@ -284,7 +336,8 @@ def run_job(name):
                 html_content = f.read()
             log_message(f"Detected changes for job {name} at {url}")
             summary = summarize_diff(diff_text, html_content)
-            send_email(name, url, summary, diff_text, load_config()['email'])
+            subject, body = create_email_content(job["name"], url, summary, diff_text)
+            send_email(job["name"], subject, body, load_config()['email'])
 
     return changes_detected
 
