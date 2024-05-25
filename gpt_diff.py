@@ -21,16 +21,10 @@ def load_config():
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
 
-if len(sys.argv)<=1:
-    print("you have to submit the basedir to operate in as the first arg, the place you checked out the repo.")
-    sys.exit(2)
-
-basedir=sys.argv[1]
-if not os.path.exists(basedir) and not os.path.isdir(basedir):
-    print("bad basedir submitted as first argument.")
-    sys.exit(1)
-
-os.chdir(basedir)
+script_path = os.path.abspath(__file__)
+script_dir = os.path.dirname(script_path)
+print('changing to:',script_dir)
+os.chdir(script_dir)
 
 BACKUP_DIR = 'gptcron_backups'
 CONFIG_FILE = 'config.json'
@@ -69,8 +63,6 @@ def backup_cron_file():
 def extract_text_from_html(html_content):
     return BeautifulSoup(html_content, 'html.parser').get_text(separator=' ', strip=True)
 
-
-
 def load_apikey():
     with open(API_KEY_FILE, 'r') as f:
         return f.read().strip()
@@ -83,7 +75,7 @@ def save_email_to_disk(job_name, subject, body):
         f.write(f"Subject: {subject}\n\n{body}")
 
 def create_email_content(job_name, url, summary, diff_text):
-    subject = f"Changes detected for {job_name} at {url}"
+    subject = f"GPTDiff for {job_name} at {url}"
     body = f"""
     <html>
         <head>
@@ -400,7 +392,6 @@ def setup_argparse():
 
 if __name__ == "__main__":
     try:
-        sys.argv = sys.argv[1:]
         parser = setup_argparse()
         args = parser.parse_args()
         log_message(f"Command called: {args.command}")
