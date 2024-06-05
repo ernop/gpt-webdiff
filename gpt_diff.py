@@ -29,7 +29,7 @@ os.chdir(script_dir)
 BACKUP_DIR = 'gptcron_backups'
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
-VALID_FREQUENCIES = ['minutely', 'daily', 'hourly', 'weekly']
+VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly',]
 LOG_FILE = 'gpt_diff.log'
 CRON_FILE = '.gptcron'
 
@@ -162,42 +162,12 @@ def summarize_diff(diff_text, html_content):
     openai.api_key = load_apikey()
     context_text = extract_text_from_html(html_content)
 
+    loaded_prompt = open('prompt.txt').read().strip()
     combined_text = f"Diff:\n{diff_text}\n{context_text}"[:20000]
 
-    prompt = f"""
-You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones. Provide a one-line summary of the likely reason and meaning for each relevant change. Use HTML format to include details about what changed, including embedded images when applicable. Group the changes conceptually using <h2> and <h3> tags for titles and headers. You should use embedded images in html format and give details about what changed, for example, you can say 'the old image <image link> was replaced with the new image <new image link> etc. The overall goal is to help the reader of the email understand the overall big picture and sense and strategy behind the change. Also, start your response with a sentence like: The change important is N <where N is a number from 1 to 10, 1 being very insignificant, 10 being extremely important.> and give reasons. That way this serves as a kind of intro sentence. Do not say things like "some details were removed". Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. Do you get it? INCLUDE ALL DETAILS don't just summarize them. If there are specifics, give them.
-
-Here are some examples of how to generate summaries.
-
-Example 0:
-Actual Output: The change importance is 3. The change primarily updates the page to include a new list of articles, reflecting recent news and content updates.
-Evaluation: <This is very bad, since the text does not include at least brief names or subjects of the articles. It's very bad since it's so generic, saying boring things like "recent news and content updates". Such an update is useless to me - instead, it should highlight specific areas of change.
-Good output: The change importance is 3. The change primarily updates the page with an article about Beijing, as well as focusing on more international news on Gaza and Egypt, rather than the previous story about local NYC politics. This might reflect the changing timezone, as now, it's late in the day for the US, while Europe is just waking up and may be more interested in international news.
-
-Example 1:
-Diff:
-- Old text: "The sky is blue."
-- New text: "The sky is clear and blue."
-
-<In this case, the importance would be 3. If the user changed it from 'blue' to 'purple with horrible lightning' then that would be an importance of at least 7, probably, depending on the reasoning and reality of the change>
-
-Summary:
-<h2>Content Updates</h2>
-<p>The description of the sky was changed from blue to "clear and blue"</p> <== it's very important to be specific, don't just generically describe the change, give the SPECIFIC change about what was added / removed.
-
-Example 2:
-Diff:
-- Old image: <img src="old_image.jpg" alt="old image">
-- New image: <img src="new_image.jpg" alt="new image">
-
-Summary:
-<h2>New Image Introduced</h2>
-<p> The page changed from using this image: <img class="with-max-width" src="old_image.jpg" alt="old image"> to this image: <img  class="with-max-width"  src="new_image.jpg" alt="new image"></p> <== note that we added fixed max-width css to the images so they wouldn't overload the user's browser.
-
-Now, here is the diff and context you need to summarize:
-
-{combined_text}
-"""
+    prompt = f"""{loaded_prompt}
+        {combined_text}
+    """
 
     response = openai.ChatCompletion.create(
         model="gpt-4o",
@@ -252,6 +222,34 @@ def remove_job(name):
                 log_message(f"Job removed: {job['name']}")
 
     print(f"Job '{name}' removed successfully.")
+
+def change_frequency(name, direction):
+    jobs = parse_cron_file()
+    job = next((job for job in jobs if job["name"] == name), None)
+    if not job:
+        print(f"No job found with the name {name}")
+        return
+
+    current_index = VALID_FREQUENCIES.index(job["frequency"])
+
+    num_dir=-1 if direction=='increase' else 1
+
+    new_index = current_index + (num_dir)
+
+    if new_index < 0 or new_index >= len(VALID_FREQUENCIES):
+        print(f"Error: Cannot change frequency. Current frequency is '{job['frequency']}' and no {'lower' if direction == 'decrease' else 'higher'} frequency available.")
+        return
+
+    new_frequency = VALID_FREQUENCIES[new_index]
+    job["frequency"] = new_frequency
+    backup_cron_file()
+
+    with open(CRON_FILE, 'w') as f:
+        for j in jobs:
+            f.write(f"{j['frequency']} {j['name']} {j['url']} {j['date_added']}\n")
+
+    print(f"Job '{name}' frequency changed from '{VALID_FREQUENCIES[current_index]}' to '{new_frequency}' successfully.")
+    log_message(f"Job '{name}' frequency changed from '{VALID_FREQUENCIES[current_index]}' to '{new_frequency}'")
 
 def log_message(message):
     with open(LOG_FILE, 'a') as log_file:
@@ -327,8 +325,9 @@ def run_job(name):
 
     return changes_detected
 
+# the timespan in seconds.
 def parse_frequency(frequency):
-    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely':59}[frequency]
+    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely': 59, 'monthly' : 2592000}[frequency]
 
 def check_cron():
     now = time.time()
@@ -388,6 +387,12 @@ def setup_argparse():
     save_parser = subparsers.add_parser('save_sorted', help='Save sorted jobs to a file. Usage: save_sorted --sort_by <sort_by>')
     save_parser.add_argument('--sort_by', choices=['date', 'url', 'name'], required=True, help='Sort jobs by date, url, or name')
 
+    inc_freq_parser = subparsers.add_parser('inc_frequency', help='Increase the frequency of a job. Usage: inc_frequency <name>')
+    inc_freq_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+
+    dec_freq_parser = subparsers.add_parser('dec_frequency', help='Decrease the frequency of a job. Usage: decrease_frequency <name>')
+    dec_freq_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+
     return parser
 
 if __name__ == "__main__":
@@ -408,6 +413,10 @@ if __name__ == "__main__":
             remove_job(args.name)
         elif args.command == "save_sorted":
             save_sorted_jobs(args.sort_by)
+        elif args.command == "inc_frequency":
+            change_frequency(args.name, "increase")
+        elif args.command == "dec_frequency":
+            change_frequency(args.name, "decrease")
         else:
             parser.print_help()
     except Exception as e:
