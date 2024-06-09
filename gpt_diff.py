@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
 # Global notes: never use docstrings. Never remove these - they are guides for future rewrites when I paste in the entire file.
+# sample of the contents of .gptcron:
+# weekly shikoku https://en.wikipedia.org/wiki/Shikoku 00000000000000
+
+#Our goal for ignoring small changes, yet also making sure we get aggretage email coverage of all historical change, too:  Now let's talk about this issue: imagine that we do the diff, but in the end, decide not to send the email because the change threshold was not reached. In that case, we both want to 1) NOT send the email, which is good, but 2) the next time we check we want to check the FULL interval. I.e. if the times we check are T1, T2, T3 and the first interval (T1 to T2) doesn't have enough change to send an email, the next time we check (T3) we should REMEMBER that we didn't send an email, and do the full check on the diff (i.e. between T1 to T3). That way, when we reach a large enough amount of change, we'll send an email, AND the total coverage we have of sites we monitor is going to be constant. Sites can't just slowly modify little by little, and end up having the changes be lost, since none of them met the threshold.  What are general options to implement this method? List 3 main ideas we might try to make this change. Once you list the summary, we will continue our discussion and figure out which one to do. Now, I'm just looking for your proposals for the easiest, safest, and best ways to do this, in general.
+
 import os
 import sys
 import subprocess
@@ -167,18 +172,37 @@ def summarize_diff(diff_text, html_content):
 
     prompt = f"""{loaded_prompt}
         {combined_text}
+
+        Please provide your response in the following JSON format:
+        {{
+            "summary": "your_summary_here",
+            "score": your_score_here (integer from 1 to 10)
+        }}
     """
 
     response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "system", "content": "You are a helpful assistant which always returns json.."},
             {"role": "user", "content": prompt}
         ],
         max_tokens=3500
     )
 
-    return response.choices[0].message['content'].strip()
+    #~ import ipdb;ipdb.set_trace()
+
+    # Parse the JSON response
+    response_text = response.choices[0].message['content'].strip()
+    try:
+        response_json = json.loads(response_text)
+        summary = response_json['summary']
+        score = int(response_json['score'])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        log_message(f"Error parsing JSON response: {response_text}")
+        summary = "Error parsing response"
+        score = 0
+
+    return summary, score
 
 def is_valid_url(url):
     regex = re.compile(
@@ -203,6 +227,11 @@ def add_job(name, url, frequency):
     if frequency not in VALID_FREQUENCIES:
         print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly', 'minutely'")
         sys.exit(1)
+
+    jobs = parse_cron_file()
+    if any(job['name'] == name for job in jobs):
+        print(f"Error: A job with the name '{name}' already exists.")
+        return
 
     backup_cron_file()
     cron_entry = f"{frequency} {name} {url} {datetime.now().strftime('%Y%m%d%H%M%S')}\n"
@@ -299,29 +328,58 @@ def save_sorted_jobs(sort_by):
     print(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
     log_message(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
 
+
+
 def run_job(name):
     jobs = parse_cron_file()
     job = next((job for job in jobs if job["name"] == name), None)
-
+    import ipdb;ipdb.set_trace()
     if not job:
         print(f"No job found with the name {name}")
         return False
 
     url = job["url"]
-    last_file, _ = get_last_file(name)
+    metadata = load_metadata()
+    last_successful_time = metadata.get(name, {}).get("last_successful_time", None)
     latest_file = download_url(url, name)
     changes_detected = False
 
-    if last_file:
-        diff_text = compare_files(last_file, latest_file)
-        if diff_text:
-            changes_detected = True
-            with open(latest_file, 'r') as f:
-                html_content = f.read()
-            log_message(f"Detected changes for job {name} at {url}")
-            summary = summarize_diff(diff_text, html_content)
+    job_dir = f"data/{name}"
+    files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
+
+    if last_successful_time:
+        # Find the file that corresponds to the last successful email sent time
+        last_successful_file = next((f for f in files if datetime.strptime(f, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp() > last_successful_time), files[0])
+        diff_text = compare_files(os.path.join(job_dir, last_successful_file), latest_file)
+    else:
+        with open(latest_file, 'r') as f:
+            diff_text = f.read()
+        changes_detected = True
+
+    if diff_text:
+        with open(latest_file, 'r') as f:
+            html_content = f.read()
+        log_message(f"Detected changes for job {name} at {url}")
+        summary, score = summarize_diff(diff_text, html_content)
+
+        output_json = {
+            "job_name": job["name"],
+            "url": url,
+            "summary": summary,
+            "diff_text": diff_text,
+            "score": score
+        }
+        print(json.dumps(output_json))
+
+        if last_successful_time is None or score >= 5:
+            # Send email if it's the first time or the score meets the threshold
             subject, body = create_email_content(job["name"], url, summary, diff_text)
             send_email(job["name"], subject, body, load_config()['email'])
+            # Update metadata with new last successful email sent time
+            metadata[name] = {"last_successful_time": time.time()}
+            save_metadata(metadata)
+        else:
+            log_message(f"Score {score} below threshold for job {name}. Email not sent.")
 
     return changes_detected
 
@@ -395,30 +453,61 @@ def setup_argparse():
 
     return parser
 
+def load_metadata():
+    if not os.path.exists('job_metadata.json'):
+        return {}
+    with open('job_metadata.json', 'r') as f:
+        return json.load(f)
+
+def save_metadata(metadata):
+    with open('job_metadata.json', 'w') as f:
+        json.dump(metadata, f)
+
+
+def print_help():
+    help_text = """
+    GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.
+
+    Usage:
+      add <name> <url> <frequency>       Add a new URL to monitor (frequency: weekly|daily|hourly|minutely)
+      run <name>                        Run the monitoring for a specific URL
+      check_cron                        Check and run all scheduled cron jobs
+      list [--sort_by <sort_by>]        List all monitoring jobs (sort_by: date, url, name)
+      remove <name>                     Remove a job
+      save_sorted --sort_by <sort_by>   Save sorted jobs to a file (sort_by: date, url, name)
+      inc_frequency <name>              Increase the frequency of a job
+      dec_frequency <name>              Decrease the frequency of a job
+      help, -h, --h                     Show this help message
+    """
+    print(help_text)
+
 if __name__ == "__main__":
     try:
-        parser = setup_argparse()
-        args = parser.parse_args()
-        log_message(f"Command called: {args.command}")
-
-        if args.command == "add":
-            add_job(args.name, args.url, args.frequency)
-        elif args.command == "run":
-            run_job(args.name)
-        elif args.command == "check_cron":
-            check_cron()
-        elif args.command == "list":
-            list_jobs(args.sort_by)
-        elif args.command == "remove":
-            remove_job(args.name)
-        elif args.command == "save_sorted":
-            save_sorted_jobs(args.sort_by)
-        elif args.command == "inc_frequency":
-            change_frequency(args.name, "increase")
-        elif args.command == "dec_frequency":
-            change_frequency(args.name, "decrease")
+        if len(sys.argv) > 1 and sys.argv[1] in ["help", "-h", "--h"]:
+            print_help()
         else:
-            parser.print_help()
+            parser = setup_argparse()
+            args = parser.parse_args()
+            log_message(f"Command called: {args.command}")
+
+            if args.command == "add":
+                add_job(args.name, args.url, args.frequency)
+            elif args.command == "run":
+                run_job(args.name)
+            elif args.command == "check_cron":
+                check_cron()
+            elif args.command == "list":
+                list_jobs(args.sort_by)
+            elif args.command == "remove":
+                remove_job(args.name)
+            elif args.command == "save_sorted":
+                save_sorted_jobs(args.sort_by)
+            elif args.command == "inc_frequency":
+                change_frequency(args.name, "increase")
+            elif args.command == "dec_frequency":
+                change_frequency(args.name, "decrease")
+            else:
+                parser.print_help()
     except Exception as e:
         log_message(f"Unexpected error: {e}")
         raise

@@ -1,4 +1,5 @@
 gptcron_backups/*
+job_metadata.json
 emails/*
 apikey.txt
 config.json
