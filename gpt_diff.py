@@ -163,46 +163,6 @@ def compare_files(file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
         return ''.join(difflib.unified_diff(f1.readlines(), f2.readlines()))
 
-def summarize_diff(diff_text, html_content):
-    openai.api_key = load_apikey()
-    context_text = extract_text_from_html(html_content)
-
-    loaded_prompt = open('prompt.txt').read().strip()
-    combined_text = f"Diff:\n{diff_text}\n{context_text}"[:20000]
-
-    prompt = f"""{loaded_prompt}
-        {combined_text}
-
-        Please provide your response in the following JSON format:
-        {{
-            "summary": "your_summary_here",
-            "score": your_score_here (integer from 1 to 10)
-        }}
-    """
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant which always returns json.."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=3500
-    )
-
-    #~ import ipdb;ipdb.set_trace()
-
-    # Parse the JSON response
-    response_text = response.choices[0].message['content'].strip()
-    try:
-        response_json = json.loads(response_text)
-        summary = response_json['summary']
-        score = int(response_json['score'])
-    except (json.JSONDecodeError, KeyError, ValueError):
-        log_message(f"Error parsing JSON response: {response_text}")
-        summary = "Error parsing response"
-        score = 0
-
-    return summary, score
 
 def is_valid_url(url):
     regex = re.compile(
@@ -333,7 +293,7 @@ def save_sorted_jobs(sort_by):
 def run_job(name):
     jobs = parse_cron_file()
     job = next((job for job in jobs if job["name"] == name), None)
-    import ipdb;ipdb.set_trace()
+
     if not job:
         print(f"No job found with the name {name}")
         return False
@@ -348,7 +308,6 @@ def run_job(name):
     files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
 
     if last_successful_time:
-        # Find the file that corresponds to the last successful email sent time
         last_successful_file = next((f for f in files if datetime.strptime(f, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp() > last_successful_time), files[0])
         diff_text = compare_files(os.path.join(job_dir, last_successful_file), latest_file)
     else:
@@ -360,7 +319,7 @@ def run_job(name):
         with open(latest_file, 'r') as f:
             html_content = f.read()
         log_message(f"Detected changes for job {name} at {url}")
-        summary, score = summarize_diff(diff_text, html_content)
+        summary, score = summarize_diff(diff_text, html_content, url, name)
 
         output_json = {
             "job_name": job["name"],
@@ -372,16 +331,60 @@ def run_job(name):
         print(json.dumps(output_json))
 
         if last_successful_time is None or score >= 5:
-            # Send email if it's the first time or the score meets the threshold
             subject, body = create_email_content(job["name"], url, summary, diff_text)
             send_email(job["name"], subject, body, load_config()['email'])
-            # Update metadata with new last successful email sent time
             metadata[name] = {"last_successful_time": time.time()}
             save_metadata(metadata)
         else:
             log_message(f"Score {score} below threshold for job {name}. Email not sent.")
+    else:
+        log_message(f"No changes detected for job: {name}")
 
     return changes_detected
+
+def summarize_diff(diff_text, html_content, url, name):
+    openai.api_key = load_apikey()
+    context_text = extract_text_from_html(html_content)
+
+    loaded_prompt = open('prompt.txt').read().strip()
+    combined_text = f"Diff:\n{diff_text}\n{context_text}"[:20000]
+
+    prompt = f"""{loaded_prompt}
+        {combined_text}
+
+        Please provide your response in the following JSON format:
+        {{
+            "summary": "your_summary_here",
+            "score": your_score_here (integer from 1 to 10)
+        }}
+    """
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant which always returns json."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=3500
+    )
+
+    response_text = response.choices[0].message['content'].strip()
+    unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
+    raw_response_filename = f"openai_responses/{name}_{unique_id}.json"
+
+    try:
+        response_json = json.loads(response_text)
+        summary = response_json['summary']
+        score = int(response_json['score'])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        log_message(f"Error parsing JSON response: {response_text}")
+        os.makedirs('openai_responses', exist_ok=True)
+        with open(raw_response_filename, 'w') as f:
+            f.write(response_text)
+        summary = "Error parsing response"
+        score = 0
+
+    return summary, score
 
 # the timespan in seconds.
 def parse_frequency(frequency):
