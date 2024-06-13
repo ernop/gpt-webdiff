@@ -79,11 +79,20 @@ def save_email_to_disk(job_name, subject, body):
         f.write(f"Subject: {subject}\n\n{body}")
 
 def create_email_content(job_name, url, summary, diff_text, score, diff_summary):
-    subject = f"GPTDiff for {job_name} at {url} | Score: {score} | Summary: {diff_summary}"
-    with open(EMAIL_BODY_TEMPLATE , 'r') as body_file:
-        body = body_file.read().strip()
+    brief_summary = diff_summary.split('.')[0]  # Take the first sentence as a brief summary
+    subject = f"{job_name} | Score: {score} | {brief_summary}"
+    with open(EMAIL_BODY_TEMPLATE, 'r') as body_file:
+        body_template = body_file.read().strip()
+
+    body = body_template.format(
+        job_name=job_name,
+        url=url,
+        summary=summary,
+        diff_text=diff_text
+    )
 
     return subject, body
+
 
 def send_email(job_name, subject, body, to_email):
     config = load_config()
@@ -287,7 +296,7 @@ def run_job(name):
         with open(latest_file, 'r') as f:
             html_content = f.read()
         log_message(f"Detected changes for job {name} at {url}")
-        summary, score = summarize_diff(diff_text, html_content, url, name)
+        summary, score, diff_summary = summarize_diff(diff_text, html_content, url, name)
 
         output_json = {
             "job_name": job["name"],
@@ -297,8 +306,6 @@ def run_job(name):
             "score": score
         }
         print(json.dumps(output_json))
-
-        diff_summary = summary.split('\n')[0] if summary else "No summary available"
 
         if last_successful_time is None or score >= 5:
             subject, body = create_email_content(job["name"], url, summary, diff_text, score, diff_summary)
@@ -349,13 +356,14 @@ def summarize_diff(diff_text, html_content, url, name):
     )
 
     response_text = response.choices[0].message['content'].strip()
-    unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).digest()}"
+    unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
 
     for attempt in [normal, magic]:
         try:
             response_json = attempt(response_text)
             summary = response_json['summary']
             score = int(response_json['score'])
+            diff_summary = summary.split('.')[0]  # Get the brief summary for the subject
             raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
         except (json.JSONDecodeError, KeyError, ValueError):
             log_message(f"Error parsing JSON response: {response_text}")
@@ -363,9 +371,10 @@ def summarize_diff(diff_text, html_content, url, name):
             raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
             summary = "Error parsing response"
             score = 0
+            diff_summary = "Error parsing response"
         with open(raw_response_filename, 'w') as f:
             f.write(response_text)
-    return summary, score
+    return summary, score, diff_summary
 
 # the timespan in seconds.
 def parse_frequency(frequency):

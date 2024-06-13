@@ -1,3 +1,6 @@
+TODO
+* search among existing jobs list.
+
 This now works if installed via cron. See the *_example files in this dir.
 
 I want to make a command line program for "gpt-diff". It should be like "gpt-diff add <name> <URL> [daily|hourly|weekly] etc.". That would do the following:
