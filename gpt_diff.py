@@ -4,7 +4,6 @@
 # sample of the contents of .gptcron:
 # weekly shikoku https://en.wikipedia.org/wiki/Shikoku 00000000000000
 
-
 import os
 import sys
 import subprocess
@@ -33,7 +32,7 @@ os.chdir(script_dir)
 BACKUP_DIR = 'gptcron_backups'
 CONFIG_FILE = 'config.json'
 API_KEY_FILE = 'apikey.txt'
-VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly',]
+VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
 LOG_FILE = 'gpt_diff.log'
 CRON_FILE = '.gptcron'
 EMAIL_BODY_TEMPLATE='email_body_template.txt'
@@ -81,8 +80,8 @@ def save_email_to_disk(job_name, subject, body):
 
 def create_email_content(job_name, url, summary, diff_text, score, diff_summary):
     subject = f"GPTDiff for {job_name} at {url} | Score: {score} | Summary: {diff_summary}"
-    with open(EMAIL_BODY_TEMPLATE , 'r') as body:
-        thebody=body.read().strip()
+    with open(EMAIL_BODY_TEMPLATE , 'r') as body_file:
+        body = body_file.read().strip()
 
     return subject, body
 
@@ -134,7 +133,6 @@ def get_last_file(name):
 def compare_files(file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
         return ''.join(difflib.unified_diff(f1.readlines(), f2.readlines()))
-
 
 def is_valid_url(url):
     regex = re.compile(
@@ -260,8 +258,6 @@ def save_sorted_jobs(sort_by):
     print(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
     log_message(f"Jobs sorted by {sort_by} and saved back to {CRON_FILE}")
 
-
-
 def run_job(name):
     jobs = parse_cron_file()
     job = next((job for job in jobs if job["name"] == name), None)
@@ -353,7 +349,7 @@ def summarize_diff(diff_text, html_content, url, name):
     )
 
     response_text = response.choices[0].message['content'].strip()
-    unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
+    unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).digest()}"
 
     for attempt in [normal, magic]:
         try:
@@ -373,7 +369,7 @@ def summarize_diff(diff_text, html_content, url, name):
 
 # the timespan in seconds.
 def parse_frequency(frequency):
-    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely': 59, 'monthly' : 2592000}[frequency]
+    return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely': 59, 'monthly': 2592000}[frequency]
 
 def check_cron():
     now = time.time()
@@ -450,7 +446,6 @@ def load_metadata():
 def save_metadata(metadata):
     with open('job_metadata.json', 'w') as f:
         json.dump(metadata, f)
-
 
 def print_help():
     help_text = """

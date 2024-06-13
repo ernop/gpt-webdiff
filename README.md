@@ -33,3 +33,10 @@ We will never use Function Docstrings because they are a waste of space.
 
 
 #Our goal for ignoring small changes, yet also making sure we get aggretage email coverage of all historical change, too:  Now let's talk about this issue: imagine that we do the diff, but in the end, decide not to send the email because the change threshold was not reached. In that case, we both want to 1) NOT send the email, which is good, but 2) the next time we check we want to check the FULL interval. I.e. if the times we check are T1, T2, T3 and the first interval (T1 to T2) doesn't have enough change to send an email, the next time we check (T3) we should REMEMBER that we didn't send an email, and do the full check on the diff (i.e. between T1 to T3). That way, when we reach a large enough amount of change, we'll send an email, AND the total coverage we have of sites we monitor is going to be constant. Sites can't just slowly modify little by little, and end up having the changes be lost, since none of them met the threshold.  What are general options to implement this method? List 3 main ideas we might try to make this change. Once you list the summary, we will continue our discussion and figure out which one to do. Now, I'm just looking for your proposals for the easiest, safest, and best ways to do this, in general.
+
+
+okay, it sends emails, but there are problems.  See image:
+
+1. the subject is too long. I want the score, the name of the page and sender, and a new VERY BRIEF summary of the changes.
+2. The body of the email doesn't contain any details now? I want all the details, and I want them to be very easy to read. So the top part should explain the full diff, including what was added, what was changed (including before/after), and what was removed.
+3. The next section of the email should contain as best as you can a copy of the full text diff, and since it contains html, we have to protect it somehow so I can see the raw diff of the file within gmail.

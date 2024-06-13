@@ -1,4 +1,5 @@
 gptcron_backups/*
+openai_responses/*
 job_metadata.json
 emails/*
 apikey.txt

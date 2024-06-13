@@ -1,6 +1,0 @@
-```json
-{
-    "summary": "<p>The change importance is 2. The changes detected mostly involve preload links for fonts, JavaScript script loading, and CSS styling, which do not significantly affect the user-visible content. These updates may have been implemented to enhance performance or compatibility, rather than altering the core content of the page.</p>",
-    "score": 2
-}
-```
