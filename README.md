@@ -1,5 +1,6 @@
 TODO
 * search among existing jobs list.
+* when sending an email covering say A=>B (only reached score 3) and then B=>C (over threshold) we could break down the historical changes along the range. We must show the full A=C diff evaluation, too, ofc.
 
 This now works if installed via cron. See the *_example files in this dir.
 

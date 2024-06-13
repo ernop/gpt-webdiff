@@ -6,6 +6,7 @@
 
 import os
 import sys
+import html
 import subprocess
 import hashlib
 import difflib
@@ -79,7 +80,9 @@ def save_email_to_disk(job_name, subject, body):
         f.write(f"Subject: {subject}\n\n{body}")
 
 def create_email_content(job_name, url, summary, diff_text, score, brief_summary):
-    subject = f"{job_name} | Score: {score} | {brief_summary}"
+    #~ import ipdb;ipdb.set_trace()
+    escaped_diff_text = html.escape(diff_text)
+    subject = f"GPT-diff | {job_name} | Score: {score} | {brief_summary}"
     with open(EMAIL_BODY_TEMPLATE, 'r') as body_file:
         body_template = body_file.read().strip()
 
@@ -87,10 +90,12 @@ def create_email_content(job_name, url, summary, diff_text, score, brief_summary
         job_name=job_name,
         url=url,
         summary=summary,
-        diff_text=diff_text
+        diff_text=escaped_diff_text,
+        brief_summary=brief_summary
     )
 
     return subject, body
+
 
 
 def send_email(job_name, subject, body, to_email):
@@ -326,19 +331,14 @@ def magic(s):
     fix=s.strip('```json\n').strip('\n```')
     if fix.startswith('json'):
         fix=fix[4:]
-    #~ print(fix)
     return json.loads(fix)
 
 def magic2(s):
-    import json
-    import html
     s = html.unescape(s)  # Unescape HTML entities
     s = s.strip('```json\n').strip('\n```')
     return json.loads(s)
 
 def magic3(s):
-    import json
-    import html
     s = html.unescape(s)  # Unescape HTML entities
     s = s.replace('\\\n', '')  # Remove escaped newlines
     s = s.replace('\\', '')  # Remove other escape sequences
@@ -363,8 +363,6 @@ def summarize_diff(diff_text, html_content, url, name):
             "score": your_score_here (integer from 1 to 10),
         }}
     """
-
-    import ipdb;ipdb.set_trace()
 
     response = openai.ChatCompletion.create(
         model="gpt-4o",
@@ -414,13 +412,12 @@ def check_cron():
     jobs_with_changes = 0
     emails_sent = 0
     emails_failed = 0
-
+    #~ import ipdb;ipdb.set_trace()
     if os.path.exists('.gptcron'):
         with open('.gptcron', 'r') as f:
             for line in f:
                 if line.strip() and not line.startswith('#'):
                     parts = line.split()
-                    #~ import ipdb;ipdb.set_trace()
                     if len(parts) >= 3:
                         total_jobs += 1
                         frequency, name, url = parts[0], parts[1], parts[2]
@@ -438,6 +435,8 @@ def check_cron():
                                 log_message(f"Changes were detected for job: {name}")
                             else:
                                 log_message(f"No changes detected for job: {name}")
+                        else:
+                            log_message(f"Not running job: {name} because its next run time is {next_run_time-now}s in the future.")
                     else:
                         print('bad job entry:',line)
 

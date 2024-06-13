@@ -2,13 +2,20 @@
 <head>
     <style>
         body {{ font-family: Arial, sans-serif; }}
-        h1 {{ color: #333; }}
-        .summary {{ margin-bottom: 20px; font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-        .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-        .job-details {{ margin-bottom: 20px; }}
+        h1 {{ color: #333; padding-left:0;}}
+        h2 {{margin: 5px; padding-left:0;}}
+        h3 {{margin: 5px; padding-left:0;}}
+
+        .job-details {{ margin-bottom: 20px; padding:10px;}}
+
         .job-details b {{ display: inline-block; width: 100px; }}
+
+        .summary {{ margin-bottom: 20px; padding: 10px; border-radius: 5px; }}
+
+        .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
+
         img {{ max-width: 100%; height: auto; }}
-        .with-max-width {{ max-width: 200px; max-height:200px; }}
+
     </style>
 </head>
 <body>
@@ -16,14 +23,15 @@
     <div class="job-details">
         <h3>Job:</h3> {job_name}
         <h3>URL:</h3> <a href="{url}">{url}</a>
+        <h3>{brief_summary}</h3>
     </div>
+    <h1>Summary:</h1>
     <div class="summary">
-        <h2>Summary:</h2>
-        <pre>{summary}</pre>
+        {summary}
     </div>
+    <h1>Diff:</h1>
     <div class="diff">
-        <h2>Diff:</h2>
-        <pre>{diff_text}</pre>
+        {diff_text}
     </div>
 </body>
 </html>
