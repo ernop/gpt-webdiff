@@ -78,8 +78,7 @@ def save_email_to_disk(job_name, subject, body):
     with open(filename, 'w') as f:
         f.write(f"Subject: {subject}\n\n{body}")
 
-def create_email_content(job_name, url, summary, diff_text, score, diff_summary):
-    brief_summary = diff_summary.split('.')[0]  # Take the first sentence as a brief summary
+def create_email_content(job_name, url, summary, diff_text, score, brief_summary):
     subject = f"{job_name} | Score: {score} | {brief_summary}"
     with open(EMAIL_BODY_TEMPLATE, 'r') as body_file:
         body_template = body_file.read().strip()
@@ -296,7 +295,7 @@ def run_job(name):
         with open(latest_file, 'r') as f:
             html_content = f.read()
         log_message(f"Detected changes for job {name} at {url}")
-        summary, score, diff_summary = summarize_diff(diff_text, html_content, url, name)
+        summary, score, brief_summary = summarize_diff(diff_text, html_content, url, name)
 
         output_json = {
             "job_name": job["name"],
@@ -307,8 +306,9 @@ def run_job(name):
         }
         print(json.dumps(output_json))
 
-        if last_successful_time is None or score >= 5:
-            subject, body = create_email_content(job["name"], url, summary, diff_text, score, diff_summary)
+        #the difficulty is when we fail json parsing AND its the first time we run.
+        if (last_successful_time is None and score>0) or score >= 5:
+            subject, body = create_email_content(job["name"], url, summary, diff_text, score, brief_summary)
             send_email(job["name"], subject, body, load_config()['email'])
             metadata[name] = {"last_successful_time": time.time()}
             save_metadata(metadata)
@@ -326,8 +326,25 @@ def magic(s):
     fix=s.strip('```json\n').strip('\n```')
     if fix.startswith('json'):
         fix=fix[4:]
-    print(fix)
+    #~ print(fix)
     return json.loads(fix)
+
+def magic2(s):
+    import json
+    import html
+    s = html.unescape(s)  # Unescape HTML entities
+    s = s.strip('```json\n').strip('\n```')
+    return json.loads(s)
+
+def magic3(s):
+    import json
+    import html
+    s = html.unescape(s)  # Unescape HTML entities
+    s = s.replace('\\\n', '')  # Remove escaped newlines
+    s = s.replace('\\', '')  # Remove other escape sequences
+    s = s.strip('```json\n').strip('\n```')
+    return json.loads(s)
+
 
 def summarize_diff(diff_text, html_content, url, name):
     openai.api_key = load_apikey()
@@ -342,9 +359,12 @@ def summarize_diff(diff_text, html_content, url, name):
         Please provide your response in the following JSON format:
         {{
             "summary": "your_summary_here",
-            "score": your_score_here (integer from 1 to 10)
+            "brief_summary": "a one-sentence, pure text summary of the changes",
+            "score": your_score_here (integer from 1 to 10),
         }}
     """
+
+    import ipdb;ipdb.set_trace()
 
     response = openai.ChatCompletion.create(
         model="gpt-4o",
@@ -358,23 +378,31 @@ def summarize_diff(diff_text, html_content, url, name):
     response_text = response.choices[0].message['content'].strip()
     unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
 
-    for attempt in [normal, magic]:
+    raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
+    got=False
+    for attempt in [normal, magic, magic2, magic3]:
         try:
             response_json = attempt(response_text)
             summary = response_json['summary']
             score = int(response_json['score'])
-            diff_summary = summary.split('.')[0]  # Get the brief summary for the subject
+            brief_summary=response_json['brief_summary']
             raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
+            got=True
+            #once we parse one,break
+            break
         except (json.JSONDecodeError, KeyError, ValueError):
             log_message(f"Error parsing JSON response: {response_text}")
             os.makedirs('openai_responses', exist_ok=True)
-            raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
             summary = "Error parsing response"
+            brief_summary="Fail"
             score = 0
-            diff_summary = "Error parsing response"
-        with open(raw_response_filename, 'w') as f:
-            f.write(response_text)
-    return summary, score, diff_summary
+    if not got:
+        #i mean, we might as well die= here? no point going on
+        import ipdb;ipdb.set_trace()
+    #either success (by some method or other) or failure (if all failed.)
+    with open(raw_response_filename, 'w') as f:
+        f.write(response_text)
+    return summary, score, brief_summary
 
 # the timespan in seconds.
 def parse_frequency(frequency):
@@ -415,6 +443,28 @@ def check_cron():
 
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
 
+def debug_json_parsing(job_name):
+    import ipdb
+    ipdb.set_trace()
+    job_dir = f"openai_responses/"
+    files = sorted([f for f in os.listdir(job_dir) if 'parsed_bad' in f and job_name in f])
+    if not files:
+        print(f"No failed response files found for job {job_name}")
+        return
+
+    last_failed_file = os.path.join(job_dir, files[-1])
+    with open(last_failed_file, 'r') as f:
+        raw_text = f.read()
+
+    print(f"Debugging last failed response from {last_failed_file}")
+
+    for attempt in [normal, magic, magic2, magic3]:
+        try:
+            response_json = attempt(raw_text)
+            print("Parsed JSON:", response_json)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            print(f"Error parsing JSON with {attempt.__name__}: {e}")
+
 def setup_argparse():
     parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
@@ -444,7 +494,11 @@ def setup_argparse():
     dec_freq_parser = subparsers.add_parser('dec_frequency', help='Decrease the frequency of a job. Usage: decrease_frequency <name>')
     dec_freq_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
 
+    debug_parser = subparsers.add_parser('reparse', help='Debug JSON parsing by dropping into ipdb')
+    debug_parser.add_argument('name', type=str, help='Alphanumeric label for the job to debug')
+
     return parser
+
 
 def load_metadata():
     if not os.path.exists('job_metadata.json'):
@@ -498,6 +552,8 @@ if __name__ == "__main__":
                 change_frequency(args.name, "increase")
             elif args.command == "dec_frequency":
                 change_frequency(args.name, "decrease")
+            elif args.command == "reparse":
+                debug_json_parsing(args.name)
             else:
                 parser.print_help()
     except Exception as e:
