@@ -4,7 +4,6 @@
 # sample of the contents of .gptcron:
 # weekly shikoku https://en.wikipedia.org/wiki/Shikoku 00000000000000
 
-#Our goal for ignoring small changes, yet also making sure we get aggretage email coverage of all historical change, too:  Now let's talk about this issue: imagine that we do the diff, but in the end, decide not to send the email because the change threshold was not reached. In that case, we both want to 1) NOT send the email, which is good, but 2) the next time we check we want to check the FULL interval. I.e. if the times we check are T1, T2, T3 and the first interval (T1 to T2) doesn't have enough change to send an email, the next time we check (T3) we should REMEMBER that we didn't send an email, and do the full check on the diff (i.e. between T1 to T3). That way, when we reach a large enough amount of change, we'll send an email, AND the total coverage we have of sites we monitor is going to be constant. Sites can't just slowly modify little by little, and end up having the changes be lost, since none of them met the threshold.  What are general options to implement this method? List 3 main ideas we might try to make this change. Once you list the summary, we will continue our discussion and figure out which one to do. Now, I'm just looking for your proposals for the easiest, safest, and best ways to do this, in general.
 
 import os
 import sys
@@ -37,6 +36,7 @@ API_KEY_FILE = 'apikey.txt'
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly',]
 LOG_FILE = 'gpt_diff.log'
 CRON_FILE = '.gptcron'
+EMAIL_BODY_TEMPLATE='email_body_template.txt'
 
 def parse_cron_file():
     jobs = []
@@ -79,39 +79,11 @@ def save_email_to_disk(job_name, subject, body):
     with open(filename, 'w') as f:
         f.write(f"Subject: {subject}\n\n{body}")
 
-def create_email_content(job_name, url, summary, diff_text):
-    subject = f"GPTDiff for {job_name} at {url}"
-    body = f"""
-    <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; }}
-                h1 {{ color: #333; }}
-                .summary {{ margin-bottom: 20px; font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-                .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-                .job-details {{ margin-bottom: 20px; }}
-                .job-details b {{ display: inline-block; width: 100px; }}
-                img {{ max-width: 100%; height: auto; }}
-                .with-max-width {{ max-width: 200px; max-height:200px;}}
-            </style>
-        </head>
-        <body>
-            <h1>Changes Detected</h1>
-            <div class="job-details">
-                <h3>Job:</h3> {job_name}
-                <h3>URL:</h3> <a href="{url}">{url}</a>
-            </div>
-            <div class="summary">
-                <h2>Summary:</h2>
-                <pre>{summary}</pre>
-            </div>
-            <div class="diff">
-                <h2>Diff:</h2>
-                <pre>{diff_text}</pre>
-            </div>
-        </body>
-    </html>
-    """
+def create_email_content(job_name, url, summary, diff_text, score, diff_summary):
+    subject = f"GPTDiff for {job_name} at {url} | Score: {score} | Summary: {diff_summary}"
+    with open(EMAIL_BODY_TEMPLATE , 'r') as body:
+        thebody=body.read().strip()
+
     return subject, body
 
 def send_email(job_name, subject, body, to_email):
@@ -330,8 +302,10 @@ def run_job(name):
         }
         print(json.dumps(output_json))
 
+        diff_summary = summary.split('\n')[0] if summary else "No summary available"
+
         if last_successful_time is None or score >= 5:
-            subject, body = create_email_content(job["name"], url, summary, diff_text)
+            subject, body = create_email_content(job["name"], url, summary, diff_text, score, diff_summary)
             send_email(job["name"], subject, body, load_config()['email'])
             metadata[name] = {"last_successful_time": time.time()}
             save_metadata(metadata)
@@ -341,6 +315,16 @@ def run_job(name):
         log_message(f"No changes detected for job: {name}")
 
     return changes_detected
+
+def normal(s):
+    return json.loads(s)
+
+def magic(s):
+    fix=s.strip('```json\n').strip('\n```')
+    if fix.startswith('json'):
+        fix=fix[4:]
+    print(fix)
+    return json.loads(fix)
 
 def summarize_diff(diff_text, html_content, url, name):
     openai.api_key = load_apikey()
@@ -370,20 +354,21 @@ def summarize_diff(diff_text, html_content, url, name):
 
     response_text = response.choices[0].message['content'].strip()
     unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
-    raw_response_filename = f"openai_responses/{name}_{unique_id}.json"
 
-    try:
-        response_json = json.loads(response_text)
-        summary = response_json['summary']
-        score = int(response_json['score'])
-    except (json.JSONDecodeError, KeyError, ValueError):
-        log_message(f"Error parsing JSON response: {response_text}")
-        os.makedirs('openai_responses', exist_ok=True)
+    for attempt in [normal, magic]:
+        try:
+            response_json = attempt(response_text)
+            summary = response_json['summary']
+            score = int(response_json['score'])
+            raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
+        except (json.JSONDecodeError, KeyError, ValueError):
+            log_message(f"Error parsing JSON response: {response_text}")
+            os.makedirs('openai_responses', exist_ok=True)
+            raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
+            summary = "Error parsing response"
+            score = 0
         with open(raw_response_filename, 'w') as f:
             f.write(response_text)
-        summary = "Error parsing response"
-        score = 0
-
     return summary, score
 
 # the timespan in seconds.
