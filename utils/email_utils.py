@@ -12,7 +12,7 @@ def save_email_to_disk(job_name, subject, body):
     with open(filename, 'w') as f:
         f.write(f"Subject: {subject}\n\n{body}")
 
-def create_email_content(job_name, url, summary, diff_text, score, brief_summary):
+def create_email_content(job_name, url, brief_summary, summary, diff_text, score):
     escaped_diff_text = html.escape(diff_text)
     subject = f"GPT-diff | {job_name} | Score: {score} | {brief_summary}"
     with open('email_body_template.txt', 'r') as body_file:
@@ -23,6 +23,20 @@ def create_email_content(job_name, url, summary, diff_text, score, brief_summary
         url=url,
         summary=summary,
         diff_text=escaped_diff_text,
+        brief_summary=brief_summary
+    )
+
+    return subject, body
+
+def create_summary_email_content(job_name, url, brief_summary, summary):
+    subject = f"GPT-diff | New job added: {job_name} | {brief_summary}"
+    with open('summary_email_body_template.txt', 'r') as body_file:
+        body_template = body_file.read().strip()
+
+    body = body_template.format(
+        job_name=job_name,
+        url=url,
+        summary=summary,
         brief_summary=brief_summary
     )
 

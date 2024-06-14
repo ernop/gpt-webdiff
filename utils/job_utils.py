@@ -4,11 +4,10 @@ import json
 import time
 import re
 import datetime
-
 from utils.file_utils import parse_cron_file, backup_cron_file, get_last_file, compare_files, download_url, is_valid_url
-from utils.email_utils import create_email_content, send_email
-from utils.misc_utils import log_message, load_config, load_metadata, save_metadata
-from utils.openai_utils import summarize_diff
+from utils.email_utils import create_email_content, send_email, create_summary_email_content
+from utils.misc_utils import log_message, load_config, load_metadata, save_metadata, extract_text_from_html
+from utils.openai_utils import summarize_diff, summarize_page
 
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
 
@@ -131,41 +130,51 @@ def run_job(name):
     latest_file = download_url(url, name)
     changes_detected = False
 
-    job_dir = f"data/{name}"
-    files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
-
     if last_successful_time:
-        last_successful_file = next((f for f in files if datetime.strptime(f, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp() > last_successful_time), files[0])
+        # Compare with the last successful file
+        job_dir = f"data/{name}"
+        files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
+        last_successful_file = next((f for f in files if datetime.datetime.strptime(f, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp() > last_successful_time), files[0])
         diff_text = compare_files(os.path.join(job_dir, last_successful_file), latest_file)
-    else:
-        with open(latest_file, 'r') as f:
-            diff_text = f.read()
-        changes_detected = True
 
-    if diff_text:
+        if diff_text:
+            with open(latest_file, 'r') as f:
+                html_content = f.read()
+            log_message(f"Detected changes for job {name} at {url}")
+            summary, score, brief_summary = summarize_diff(diff_text, html_content, url, name)
+
+            output_json = {
+                "job_name": job["name"],
+                "url": url,
+                "summary": summary,
+                "diff_text": diff_text,
+                "score": score
+            }
+            print(json.dumps(output_json))
+
+            if (last_successful_time is None and score > 0) or score >= 5:
+                subject, body = create_email_content(job["name"], url, brief_summary, summary, diff_text, score)
+                send_email(job["name"], subject, body, load_config()['email'])
+                metadata[name] = {"last_successful_time": time.time()}
+                changes_detected=True
+                save_metadata(metadata)
+            else:
+                log_message(f"Score {score} below threshold for job {name}. Email not sent.")
+        else:
+            log_message(f"No changes detected for job: {name}")
+
+    else: # First-time check: summarize the entire page
         with open(latest_file, 'r') as f:
             html_content = f.read()
-        log_message(f"Detected changes for job {name} at {url}")
-        summary, score, brief_summary = summarize_diff(diff_text, html_content, url, name)
-
-        output_json = {
-            "job_name": job["name"],
-            "url": url,
-            "summary": summary,
-            "diff_text": diff_text,
-            "score": score
-        }
-        print(json.dumps(output_json))
-
-        if (last_successful_time is None and score > 0) or score >= 5:
-            subject, body = create_email_content(job["name"], url, summary, diff_text, score, brief_summary)
-            send_email(job["name"], subject, body, load_config()['email'])
-            metadata[name] = {"last_successful_time": time.time()}
-            save_metadata(metadata)
-        else:
-            log_message(f"Score {score} below threshold for job {name}. Email not sent.")
-    else:
-        log_message(f"No changes detected for job: {name}")
+        context_text = extract_text_from_html(html_content)
+        summary, brief_summary = summarize_page(context_text, url, name)
+        log_message(f"First-time check for job {name} at {url}")
+        subject, body = create_summary_email_content(job["name"], url, brief_summary, summary)
+        # we always send such a check.
+        send_email(job["name"], subject, body, load_config()['email'])
+        changes_detected=True
+        metadata[name] = {"last_successful_time": time.time()}
+        save_metadata(metadata)
 
     return changes_detected
 

@@ -19,7 +19,7 @@
     </style>
 </head>
 <body>
-    <h1>Changes Detected</h1>
+    <h1>New Job Added</h1>
     <div class="job-details">
         <h3>{brief_summary}</h3>
         <h3>Job:</h3> {job_name}
@@ -28,10 +28,6 @@
     <h1>Summary:</h1>
     <div class="summary">
         {summary}
-    </div>
-    <h1>Diff:</h1>
-    <div class="diff">
-        {diff_text}
     </div>
 </body>
 </html>
