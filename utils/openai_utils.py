@@ -39,8 +39,8 @@ def summarize_diff(diff_text, html_content, url, name):
 
         Please provide your response in the following JSON format:
         {{
-            "summary": "your_summary_here",
-            "brief_summary": "a one-sentence, pure text summary of the changes",
+            "summary": "generate a text summary of the webpage. Use newlines to separate paragraphs covering all the main aspects of the page. Make sure to cover it broadly.",
+            "brief_summary": "a one-sentence, pure text summary of the changes. This is for use within an email subject line, so it cannot be very long.",
             "score": your_score_here (integer from 1 to 10),
         }}
     """

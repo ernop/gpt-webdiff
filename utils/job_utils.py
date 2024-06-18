@@ -150,11 +150,10 @@ def run_job(name):
                 "diff_text": diff_text,
                 "score": score
             }
-            print(json.dumps(output_json))
 
             if (last_successful_time is None and score > 0) or score >= 5:
                 subject, body = create_email_content(job["name"], url, brief_summary, summary, diff_text, score)
-                send_email(job["name"], subject, body, load_config()['email'])
+                send_email(job["name"], subject, body, load_config()['to_email'])
                 metadata[name] = {"last_successful_time": time.time()}
                 changes_detected=True
                 save_metadata(metadata)
@@ -167,14 +166,17 @@ def run_job(name):
         with open(latest_file, 'r') as f:
             html_content = f.read()
         context_text = extract_text_from_html(html_content)
-        summary, brief_summary = summarize_page(context_text, url, name)
         log_message(f"First-time check for job {name} at {url}")
-        subject, body = create_summary_email_content(job["name"], url, brief_summary, summary)
-        # we always send such a check.
-        send_email(job["name"], subject, body, load_config()['email'])
-        changes_detected=True
-        metadata[name] = {"last_successful_time": time.time()}
-        save_metadata(metadata)
+        if context_text=='':
+            summary, brief_summary='',''
+            log_message(f"First-time check for job {name} at {url} got no data from the page.")
+        else:
+            summary, brief_summary = summarize_page(context_text, url, name)
+            subject, body = create_summary_email_content(job["name"], url, brief_summary, summary)
+            send_email(job["name"], subject, body, load_config()['to_email'])
+            changes_detected=True
+            metadata[name] = {"last_successful_time": time.time()}
+            save_metadata(metadata)
 
     return changes_detected
 

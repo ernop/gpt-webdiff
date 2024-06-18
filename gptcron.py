@@ -5,7 +5,7 @@ import re
 import sys
 import argparse
 import time
-from utils.email_utils import send_email, save_email_to_disk, create_email_content
+from utils.email_utils import send_email, save_email_to_disk, create_email_content, email_me_gptcron
 from utils.file_utils import parse_cron_file, backup_cron_file, get_last_file, compare_files, download_url, is_valid_url
 from utils.job_utils import add_job, remove_job, change_frequency, list_jobs, save_sorted_jobs, run_job, parse_frequency, check_cron
 from utils.openai_utils import summarize_diff
@@ -29,6 +29,8 @@ def setup_argparse():
 
     run_parser = subparsers.add_parser('run', help='Run the monitoring for a specific URL. Usage: run <name>')
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+
+    email_me_gptcron = subparsers.add_parser('email-backup', help='Email me the backup of .gptcron for safekeeping. Usage: email-backup.')
 
     subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs.')
 
@@ -80,6 +82,8 @@ if __name__ == "__main__":
                 change_frequency(args.name, "decrease")
             elif args.command == "reparse":
                 debug_json_parsing(args.name)
+            elif args.command=='email-backup':
+                email_me_gptcron()
             else:
                 parser.print_help()
     except Exception as e:

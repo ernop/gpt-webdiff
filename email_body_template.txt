@@ -2,20 +2,19 @@
 <head>
     <style>
         body {{ font-family: Arial, sans-serif; }}
-        h1 {{ color: #333; padding-left:0;}}
+        h1 {{margin:5px; padding-left:0;}}
         h2 {{margin: 5px; padding-left:0;}}
         h3 {{margin: 5px; padding-left:0;}}
 
-        .job-details {{ margin-bottom: 20px; padding:10px;}}
+        .job-details {{ margin: 20px; padding:10px; }}
 
         .job-details b {{ display: inline-block; width: 100px; }}
 
-        .summary {{ margin-bottom: 20px; padding: 10px; border-radius: 5px; }}
+        .summary {{ margin: 20px; padding: 10px; border-radius: 5px; }}
 
         .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
 
         img {{ max-width: 100%; height: auto; }}
-
     </style>
 </head>
 <body>
