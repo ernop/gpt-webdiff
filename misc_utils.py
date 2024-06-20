@@ -2,6 +2,7 @@ import json
 import os
 import html
 from datetime import datetime
+from gpt_json import attempt_to_deserialize_openai_json
 from bs4 import BeautifulSoup
 
 CONFIG_FILE = 'config.json'
@@ -50,9 +51,4 @@ def debug_json_parsing(job_name):
 
     print(f"Debugging last failed response from {last_failed_file}")
 
-    for attempt in [normal, magic, magic2, magic3]:
-        try:
-            response_json = attempt(raw_text)
-            print("Parsed JSON:", response_json)
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            print(f"Error parsing JSON with {attempt.__name__}: {e}")
+    attempt_to_deserialize_openai_json(raw_text, debug_failures=True)

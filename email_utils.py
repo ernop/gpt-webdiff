@@ -3,7 +3,7 @@ import smtplib
 from email.mime.text import MIMEText
 import html
 from datetime import datetime
-from utils.misc_utils import log_message, load_config
+from misc_utils import log_message, load_config
 
 def save_email_to_disk(job_name, subject, body):
     email_dir = "emails"

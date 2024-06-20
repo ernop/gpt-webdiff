@@ -4,8 +4,7 @@ import subprocess
 import re
 from datetime import datetime
 import difflib
-from bs4 import BeautifulSoup
-from utils.misc_utils import log_message
+from misc_utils import log_message
 
 def parse_cron_file():
     jobs = []

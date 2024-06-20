@@ -4,28 +4,8 @@ import os
 import time
 import html
 import json
-from utils.misc_utils import load_apikey, log_message, extract_text_from_html
-
-def normal(s):
-    return json.loads(s)
-
-def magic(s):
-    fix = s.strip('```json\n').strip('\n```')
-    if fix.startswith('json'):
-        fix = fix[4:]
-    return json.loads(fix)
-
-def magic2(s):
-    s = html.unescape(s)
-    s = s.strip('```json\n').strip('\n```')
-    return json.loads(s)
-
-def magic3(s):
-    s = html.unescape(s)
-    s = s.replace('\\\n', '')
-    s = s.replace('\\', '')
-    s = s.strip('```json\n').strip('\n```')
-    return json.loads(s)
+from misc_utils import load_apikey, log_message, extract_text_from_html
+from gpt_json import attempt_to_deserialize_openai_json
 
 def summarize_diff(diff_text, html_content, url, name):
     openai.api_key = load_apikey()
@@ -59,24 +39,23 @@ def summarize_diff(diff_text, html_content, url, name):
 
     raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
     got = False
-    for attempt in [normal, magic, magic2, magic3]:
-        try:
-            response_json = attempt(response_text)
-            summary = response_json['summary']
-            score = int(response_json['score'])
-            brief_summary = response_json['brief_summary']
-            raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
-            got = True
-            break
-        except (json.JSONDecodeError, KeyError, ValueError):
-            log_message(f"Error parsing JSON response: {response_text}")
-            os.makedirs('openai_responses', exist_ok=True)
-            summary = "Error parsing response"
-            brief_summary = "Fail"
-            score = 0
+    response_json, got=attempt_to_deserialize_openai_json(response_text)
+
+
     if not got:
-        import ipdb
-        ipdb.set_trace()
+        summary = "Error parsing response"
+        brief_summary = "Fail"
+        score = 0
+        raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
+        with open(raw_response_filename, 'w') as f:
+            f.write(response_text)
+    os.makedirs('openai_responses', exist_ok=True)
+    summary = response_json['summary']
+    score = int(response_json['score'])
+    brief_summary = response_json['brief_summary']
+    raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
+    got = True
+
     with open(raw_response_filename, 'w') as f:
         f.write(response_text)
     return summary, score, brief_summary
@@ -110,21 +89,8 @@ def summarize_page(context_text, url, name):
 
     raw_response_filename = f"openai_responses/{name}_{unique_id}_summary.json"
     got = False
-    for attempt in [normal, magic, magic2, magic3]:
-        try:
-            response_json = attempt(response_text)
-            summary = response_json['summary']
-            brief_summary = response_json['brief_summary']
-            raw_response_filename = f"openai_responses/{name}_{unique_id}_summary_okay.json"
-            got = True
-            break
-        except (json.JSONDecodeError, KeyError, ValueError):
-            log_message(f"Error parsing JSON response: {response_text}")
-            os.makedirs('openai_responses', exist_ok=True)
-            summary = "Error parsing response"
-    if not got:
-        import ipdb
-        ipdb.set_trace()
-    with open(raw_response_filename, 'w') as f:
-        f.write(response_text)
+    response_json, got= attempt_to_deserialize_openai_json(response_text, debug_failures=True)
+    summary = response_json['summary']
+    brief_summary = response_json['brief_summary']
+    raw_response_filename = f"openai_responses/{name}_{unique_id}_summary_okay.json"
     return summary, brief_summary

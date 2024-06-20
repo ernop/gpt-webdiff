@@ -1,4 +1,9 @@
 TODO
+* added emailing myself periodically, this is good.
+* adding having gpt4o make up possible names so you just do python3 gptcron.py add URL and it reads the url for the first time and does everything right away.
+* question: it's weird I send the raw html to the diff evaluator rather than comparing the text parts extracted with BS. Is that really the right thing? I do want to catch data changes which take place in js files, but still.
+* later version: actually I also really want to have a headless browser which grabs all this stuff as images and then uses that to do the diff. i.e. fully render the page all the way then compare that.
+
 * search among existing jobs list.
 * when sending an email covering say A=>B (only reached score 3) and then B=>C (over threshold) we could break down the historical changes along the range. We must show the full A=C diff evaluation, too, ofc.
 

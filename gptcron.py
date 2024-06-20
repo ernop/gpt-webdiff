@@ -5,11 +5,11 @@ import re
 import sys
 import argparse
 import time
-from utils.email_utils import send_email, save_email_to_disk, create_email_content, email_me_gptcron
-from utils.file_utils import parse_cron_file, backup_cron_file, get_last_file, compare_files, download_url, is_valid_url
-from utils.job_utils import add_job, remove_job, change_frequency, list_jobs, save_sorted_jobs, run_job, parse_frequency, check_cron
-from utils.openai_utils import summarize_diff
-from utils.misc_utils import load_config, load_apikey, log_message, load_metadata, save_metadata, debug_json_parsing
+from email_utils import send_email, save_email_to_disk, create_email_content, email_me_gptcron
+from file_utils import parse_cron_file, backup_cron_file, get_last_file, compare_files, download_url, is_valid_url
+from job_utils import add_job, remove_job, change_frequency, list_jobs, save_sorted_jobs, run_job, parse_frequency, check_cron
+from openai_utils import summarize_diff
+from misc_utils import load_config, load_apikey, log_message, load_metadata, save_metadata, debug_json_parsing
 
 script_path = os.path.abspath(__file__)
 script_dir = os.path.dirname(script_path)
@@ -22,10 +22,10 @@ def setup_argparse():
     parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
 
-    add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: add <your name for the site> <URL> [weekly|daily|hourly|minutely]')
-    add_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
+    add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: `add <URL> [weekly|daily|hourly|minutely]` or `add <URL> <name> [weekly|daily|hourly|minutely]`')
+    add_parser.add_argument('name', type=str, nargs='?', help='Alphanumeric label for this job')
     add_parser.add_argument('url', type=str, help='URL to monitor')
-    add_parser.add_argument('frequency', type=str, choices=VALID_FREQUENCIES, help='Frequency to check the URL (e.g weekly|daily|hourly|minutely)')
+    add_parser.add_argument('frequency', type=str, nargs='?', choices=VALID_FREQUENCIES, help='Frequency to check the URL (e.g weekly|daily|hourly|minutely)')
 
     run_parser = subparsers.add_parser('run', help='Run the monitoring for a specific URL. Usage: run <name>')
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
