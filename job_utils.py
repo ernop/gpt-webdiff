@@ -47,14 +47,6 @@ def gpt_generate_job_names(url, text):
 
 def add_job2(url, frequency):
     suggested_name = gpt_generate_job_names(url, text_content)
-    #~ print("Here are 5 suggested names for the URL:")
-    #~ for i, suggestion in enumerate(response['suggestions'], 1):
-        #~ print(f"{i}. {suggestion}")
-    #~ user_choice = input("Choose a name from 1-5, or enter your own: ")
-    #~ if user_choice.isdigit() and 1 <= int(user_choice) <= 5:
-        #~ name = response['suggestions'][int(user_choice) - 1]
-    #~ else:
-        #~ name = user_choice
     if not re.match(r'^[a-zA-Z0-9-]+$', name):
         print(f"Error: Invalid job name: name must be alphanumeric.")
         sys.exit(1)
@@ -246,7 +238,7 @@ def save_sorted_jobs(sort_by):
 def parse_frequency(frequency):
     return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely': 59, 'monthly': 2592000}[frequency]
 
-def check_cron():
+def check_cron(force = True):
     now = time.time()
     total_jobs = 0
     jobs_with_changes = 0
@@ -265,7 +257,7 @@ def check_cron():
                             last_run_time = 0
                         next_run_time = last_run_time + parse_frequency(frequency)
 
-                        if now >= next_run_time:
+                        if (now >= next_run_time) or force:
                             log_message(f"Running job: {name}")
                             changes_detected = run_job(name)
                             if changes_detected:
@@ -275,7 +267,8 @@ def check_cron():
                             else:
                                 log_message(f"No changes detected for job: {name}")
                         else:
-                            log_message(f"Not running job: {name} because its next run time is {next_run_time - now}s in the future.")
+                            fut=next_run_time - now
+                            log_message(f"Not running job: {name} because its next run time is {fut:.0f}s in the future.")
                     else:
                         print('bad job entry:', line)
 

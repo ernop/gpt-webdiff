@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 import difflib
 from misc_utils import log_message
+from bs4 import BeautifulSoup
 
 def parse_cron_file():
     jobs = []
@@ -47,7 +48,12 @@ def get_last_file(name):
 
 def compare_files(file1, file2):
     with open(file1, 'r') as f1, open(file2, 'r') as f2:
-        return ''.join(difflib.unified_diff(f1.readlines(), f2.readlines()))
+        a=BeautifulSoup(f1.read(), 'html.parser').get_text(separator=' ', strip=True).splitlines()
+        b=BeautifulSoup(f2.read(), 'html.parser').get_text(separator=' ', strip=True).splitlines()
+
+        d= difflib.unified_diff(a, b)
+        import ipdb;ipdb.set_trace()
+        return d
 
 def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"

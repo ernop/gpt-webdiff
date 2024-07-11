@@ -22,17 +22,18 @@ def setup_argparse():
     parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
 
-    add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: `add <URL> [weekly|daily|hourly|minutely]` or `add <URL> <name> [weekly|daily|hourly|minutely]`')
-    add_parser.add_argument('name', type=str, nargs='?', help='Alphanumeric label for this job')
+    add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: `add <URL> <name, if missing will be filled in by gpt4o.> [weekly|daily|hourly|minutely <default weekly>]` or `add <URL> [name, if missing will be filled in by gpt4o.] [weekly|daily|hourly|minutely <default weekly>]`')
     add_parser.add_argument('url', type=str, help='URL to monitor')
-    add_parser.add_argument('frequency', type=str, nargs='?', choices=VALID_FREQUENCIES, help='Frequency to check the URL (e.g weekly|daily|hourly|minutely)')
+    add_parser.add_argument('name', type=str, nargs='?', help='Alphanumeric label for this job')
+    add_parser.add_argument('frequency', type=str, nargs='?', choices=VALID_FREQUENCIES, default='daily', help='Frequency to check the URL (e.g weekly|daily|hourly|minutely)')
 
     run_parser = subparsers.add_parser('run', help='Run the monitoring for a specific URL. Usage: run <name>')
     run_parser.add_argument('name', type=str, help='Alphanumeric label for this job')
 
     email_me_gptcron = subparsers.add_parser('email-backup', help='Email me the backup of .gptcron for safekeeping. Usage: email-backup.')
 
-    subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs.')
+    check_parser = subparsers.add_parser('check_cron', help='Check and run all scheduled cron jobs.')
+    check_parser.add_argument('force', type=str, nargs='?', help='Force override & trigger debugging.')
 
     list_parser = subparsers.add_parser('list', help='List all monitoring jobs.')
     list_parser.add_argument('--sort_by', choices=['date', 'url', 'name'], help='Sort jobs by date, url, or name')
@@ -56,20 +57,27 @@ def setup_argparse():
 
 
 if __name__ == "__main__":
+    if os.path.exists("disable"):
+        import ipdb;ipdb.set_trace()
+        #skip past here to line 65 if you are here while debugging. This lets us override the local cron so we can manually test.
+        sys.exit(1)
     try:
         if len(sys.argv) > 1 and sys.argv[1] in ["help", "-h", "--h"]:
-            print_help()
+            parser = setup_argparse()
+            parser.print_help()
         else:
             parser = setup_argparse()
             args = parser.parse_args()
             log_message(f"Command called: {args.command}")
 
             if args.command == "add":
-                add_job(args.name, args.url, args.frequency)
+                name = args.name if args.name else f"job_{int(time.time())}"
+                frequency = args.frequency
+                add_job(name, args.url, frequency)
             elif args.command == "run":
                 run_job(args.name)
             elif args.command == "check_cron":
-                check_cron()
+                check_cron(args.force)
             elif args.command == "list":
                 list_jobs(args.sort_by)
             elif args.command == "remove":

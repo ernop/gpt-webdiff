@@ -1,3 +1,5 @@
+.vscode
+disable
 gptcron_backups/*
 openai_responses/*
 job_metadata.json

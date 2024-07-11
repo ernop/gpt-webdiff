@@ -19,9 +19,9 @@ def load_apikey():
 
 def log_message(message):
     with open(LOG_FILE, 'a') as log_file:
-        msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n"
+        msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
         print(msg)
-        log_file.write(msg)
+        log_file.write(msg+'\n')
 
 def load_metadata():
     if not os.path.exists('job_metadata.json'):
