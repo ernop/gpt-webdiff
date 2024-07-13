@@ -121,7 +121,6 @@ def rip(response_json):
         brief_summary = response_json['brief summary']
     except:
         print(response_json)
-        #~ import ipdb;ipdb.set_trace()
     return summary, score, brief_summary
 
 
@@ -266,7 +265,7 @@ def summarize_page(context_text, url, name):
 
         {context_text}
     """
-
+    client = OpenAI(api_key=load_apikey())
     response = client.chat.completions.create(model="gpt-4o",
     messages=[
         {"role": "system", "content": "You are a helpful assistant which always returns json."},
@@ -394,16 +393,18 @@ def gpt_generate_job_names(url, text):
 
     Please return JUST the name you suggest, simplest form possible, max 4 words or so, as a json string like this: {{result: "<your result>"}}.
     """
-    response = openai.ChatCompletion.create(
-        model="gpt-4o",
+    client = OpenAI(api_key=load_apikey())
+    
+    
+    response = client.chat.completions.create(model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant which always returns json."},
-            {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt}
         ],
-        max_tokens=200
-    )
-    res = response.choices[0].message['content'].strip()
-    th, got =gpt_json.attempt_to_deserialize_openai_json(res)
+        max_tokens=200)
+    
+    res = response.choices[0].message.content.strip()
+    th, got = attempt_to_deserialize_openai_json(res)
     if not got:
         return ""
     jobname=th['result']
@@ -411,15 +412,6 @@ def gpt_generate_job_names(url, text):
         print(f"Error: Invalid job name: name must be alphanumeric.")
         sys.exit(1)
     return jobname
-
-def add_job2(url, frequency):
-    suggested_name = gpt_generate_job_names(url, text_content)
-    if not re.match(r'^[a-zA-Z0-9-]+$', name):
-        print(f"Error: Invalid job name: name must be alphanumeric.")
-        sys.exit(1)
-    if any(job['name'] == name for job in jobs):
-        print(f"Error: A job with the name '{name}' already exists.")
-        return
 
 def get_gpt_name(url):
     latest_file = download_url(url, name="_no-name-yet")
@@ -453,7 +445,6 @@ def run_job(name):
 
         if diff_text:
             print(diff_text)
-            #~ import ipdb;ipdb.set_trace()
             with open(latest_file, 'r') as f:
                 html_content = f.read()
             log_message(f"Detected changes for job {name} at {url}")
@@ -500,7 +491,8 @@ def run_job(name):
     return changes_detected
 
 def add_job(name, url, frequency):
-    if name==None:
+
+    if not name:
         name= get_gpt_name(url)
     if frequency==None:
         frequency='weekly'
@@ -696,9 +688,8 @@ if __name__ == "__main__":
             parser = setup_argparse()
             args = parser.parse_args()
             log_message(f"Command called: {args.command}")
-
             if args.command == "add":
-                name = args.name if args.name else f"job_{int(time.time())}"
+                name = args.name if args.name else ""
                 frequency = args.frequency
                 add_job(name, args.url, frequency)
             elif args.command == "run":
