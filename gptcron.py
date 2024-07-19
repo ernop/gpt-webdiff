@@ -28,6 +28,78 @@ CONFIG_FILE = 'config.json'
 LOG_FILE = 'gpt_diff.log'
 API_KEY_FILE = 'apikey.txt'
 
+email_body_template="""<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; }}
+        h1 {{margin:5px; padding-left:0;}}
+        h2 {{margin: 5px; padding-left:0;}}
+        h3 {{margin: 5px; padding-left:0;}}
+
+        .job-details {{ margin: 20px; padding:10px; }}
+
+        .job-details b {{ display: inline-block; width: 100px; }}
+
+        .summary {{ margin: 20px; padding: 10px; border-radius: 5px; }}
+
+        .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
+
+        img {{ max-width: 100%; height: auto; }}
+    </style>
+</head>
+<body>
+    <h1>Changes Detected</h1>
+    <div class="job-details">
+        <h3>{brief_summary}</h3>
+        <h3>Job:</h3> {job_name}
+        <h3>URL:</h3> <a href="{url}">{url}</a>
+    </div>
+    <h1>Summary:</h1>
+    <div class="summary">
+        {summary}
+    </div>
+    <h1>Diff:</h1>
+    <div class="diff">
+        {diff_text}
+    </div>
+</body>
+</html>
+"""
+
+summary_email_body_template="""<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; }}
+        h1 {{margin:5px; padding-left:0;}}
+        h2 {{margin: 5px; padding-left:0;}}
+        h3 {{margin: 5px; padding-left:0;}}
+
+        .job-details {{ margin: 20px; padding:10px; }}
+
+        .job-details b {{ display: inline-block; width: 100px; }}
+
+        .summary {{ margin: 20px; padding: 10px; border-radius: 5px; }}
+
+        .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
+
+        img {{ max-width: 100%; height: auto; }}
+    </style>
+</head>
+<body>
+    <h1>New Job Added</h1>
+    <div class="job-details">
+        <h3>{brief_summary}</h3>
+        <h3>Job:</h3> {job_name}
+        <h3>URL:</h3> <a href="{url}">{url}</a>
+    </div>
+    <h1>Summary:</h1>
+    <div class="summary">
+        {summary}
+    </div>
+</body>
+</html>
+"""
+
 def setup_argparse():
     parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
@@ -66,9 +138,42 @@ def setup_argparse():
     search_parser = subparsers.add_parser('search', help='Search for jobs by name or URL. Usage: search <query>')
     search_parser.add_argument('query', type=str, help='Search query for job name or URL')
 
+    bump_parser = subparsers.add_parser('bump', help='Increase the frequency of an existing job. Usage: bump <job_name>')
+    bump_parser.add_argument('name', type=str, help='Name of the job to bump')
+
+    unbump_parser = subparsers.add_parser('unbump', help='Decrease the frequency of an existing job. Usage: unbump <job_name>')
+    unbump_parser.add_argument('name', type=str, help='Name of the job to unbump')
+
+    test_parser = subparsers.add_parser('test', help='Test a job by forcing a comparison. Usage: test [job_name]')
+    test_parser.add_argument('name', type=str, nargs='?', help='Name of the job to test (optional)')
 
     return parser
 
+def test_job(name=None):
+    jobs = parse_cron_file()
+    if not jobs:
+        print("No jobs found.")
+        return
+
+    if name:
+        job = next((job for job in jobs if job["name"] == name), None)
+        if not job:
+            print(f"No job found with the name {name}")
+            return
+        jobs_to_test = [job]
+    else:
+        import random
+        jobs_to_test = [random.choice(jobs)]
+
+    for job in jobs_to_test:
+        print(f"Testing job: {job['name']}")
+        changes_detected = run_job(job['name'])
+        if changes_detected:
+            print(f"Changes detected for job: {job['name']}. An email was sent.")
+        else:
+            print(f"No changes detected for job: {job['name']}. No email was sent.")
+
+    print("Test completed.")
 
 def summarize_diff(diff_text, all_text, html_content, url, name):
     context_text = extract_text_from_html(html_content)
@@ -153,10 +258,7 @@ def create_email_content(job_name, url, brief_summary, summary, diff_text, score
     formatted_summary = summary.replace('\n', '<br>')
     subject = f"GPT-diff | {job_name} | Score: {score} | {brief_summary}"
 
-    with open('email_body_template.txt', 'r') as body_file:
-        body_template = body_file.read().strip()
-
-    body = body_template.format(
+    body = email_body_template.format(
         job_name=job_name,
         url=url,
         summary=formatted_summary,
@@ -168,10 +270,8 @@ def create_email_content(job_name, url, brief_summary, summary, diff_text, score
 
 def create_summary_email_content(job_name, url, brief_summary, summary):
     subject = f"GPT-diff | New job added: {job_name} | {brief_summary}"
-    with open('summary_email_body_template.txt', 'r') as body_file:
-        body_template = body_file.read().strip()
 
-    body = body_template.format(
+    body = summary_email_body_template.format(
         job_name=job_name,
         url=url,
         summary=summary,
@@ -429,67 +529,60 @@ def get_gpt_name(url):
 def run_job(name):
     jobs = parse_cron_file()
     job = next((job for job in jobs if job["name"] == name), None)
-
     if not job:
         print(f"No job found with the name {name}")
         return False
-
+    changes_detected=False
     url = job["url"]
     metadata = load_metadata()
-    last_successful_time = metadata.get(name, {}).get("last_successful_time", None)
     latest_file = download_url(url, name)
     changes_detected = False
 
-    if last_successful_time:
-        # Compare with the last successful file
-        job_dir = f"data/{name}"
-        files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))])
-        last_successful_file = next((f for f in files if datetime.strptime(f, f"{name}-%Y%m%d-%H-%M-%S.html").timestamp() > last_successful_time), files[0])
-        diff_text, all_text = compare_files(os.path.join(job_dir, last_successful_file), latest_file)
+    versions = get_last_n_versions(name, 10)
+    last_emailed_version = metadata.get(name, {}).get("last_emailed_version", None)
+
+    if len(versions) > 1:
+        for i in range(1, len(versions)):
+            old_version = versions[i]
+            if old_version == last_emailed_version:
+                break
+
+        diff_text, all_text = compare_files(old_version, latest_file)
 
         if diff_text:
-            print(diff_text)
             with open(latest_file, 'r') as f:
                 html_content = f.read()
             log_message(f"Detected changes for job {name} at {url}")
 
-            summary, score, brief_summary = summarize_diff(diff_text, all_text,  html_content, url, name)
+            summary, score, brief_summary = summarize_diff(diff_text, all_text, html_content, url, name)
             if not summary or not score or not brief_summary:
                 return
 
-            output_json = {
-                "job_name": job["name"],
-                "url": url,
-                "summary": summary,
-                "diff_text": diff_text,
-                "score": score
-            }
-
-            if (last_successful_time is None and score > 0) or score >= 5:
+            if score >= 5:
                 subject, body = create_email_content(job["name"], url, brief_summary, summary, diff_text, score)
                 send_email(job["name"], subject, body, load_config()['to_email'])
-                metadata[name] = {"last_successful_time": time.time()}
-                changes_detected=True
+                metadata[name] = {"last_emailed_version": latest_file}
+                changes_detected = True
                 save_metadata(metadata)
             else:
                 log_message(f"Score {score} below threshold for job {name}. Email not sent.")
         else:
             log_message(f"No changes detected for job: {name}")
-
-    else: # First-time check: summarize the entire page
+    else:
+        # First-time check: summarize the entire page
         with open(latest_file, 'r') as f:
             html_content = f.read()
         context_text = extract_text_from_html(html_content)
         log_message(f"First-time check for job {name} at {url}")
-        if context_text=='':
-            summary, brief_summary='',''
+        if context_text == '':
+            summary, brief_summary = '', ''
             log_message(f"First-time check for job {name} at {url} got no data from the page.")
         else:
             summary, brief_summary = summarize_page(context_text, url, name)
             subject, body = create_summary_email_content(job["name"], url, brief_summary, summary)
             send_email(job["name"], subject, body, load_config()['to_email'])
-            changes_detected=True
-            metadata[name] = {"last_successful_time": time.time()}
+            changes_detected = True
+            metadata[name] = {"last_emailed_version": latest_file}
             save_metadata(metadata)
 
     return changes_detected
@@ -659,6 +752,14 @@ def search_jobs(query):
         print(f"{job['frequency'].ljust(max_lengths[0])}  {job['name'].ljust(max_lengths[1])}  {job['url'].ljust(max_lengths[2])}  {job['date_added'].ljust(max_lengths[3])}")
 
 
+def get_last_n_versions(name, n=5):
+    job_dir = f"data/{name}"
+    if not os.path.exists(job_dir):
+        return []
+
+    files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))], reverse=True)
+    return [os.path.join(job_dir, f) for f in files[:n]]
+
 def simple(s):
     return json.loads(s)
 
@@ -693,11 +794,55 @@ def attempt_to_deserialize_openai_json(response_text):
         except (json.JSONDecodeError, KeyError, ValueError):
             pass
     if not got:
-        print("bad tet.")
+        print("bad deserialization of json: .%s"%response_text)
         return "",False
     return response_json,got
 
+def adjust_job_frequency(name, direction):
+    jobs = parse_cron_file()
+    job = next((job for job in jobs if job["name"] == name), None)
+    if not job:
+        print(f"No job found with the name {name}")
+        return
 
+    current_index = VALID_FREQUENCIES.index(job["frequency"])
+    if direction == "bump":
+        if current_index == 0:
+            print(f"Job '{name}' is already at the highest frequency ({job['frequency']}).")
+            return
+        new_index = current_index - 1
+    else:  # unbump
+        if current_index == len(VALID_FREQUENCIES) - 1:
+            print(f"Job '{name}' is already at the lowest frequency ({job['frequency']}).")
+            return
+        new_index = current_index + 1
+
+    new_frequency = VALID_FREQUENCIES[new_index]
+    job["frequency"] = new_frequency
+    backup_cron_file()
+
+    with open('.gptcron', 'w') as f:
+        for j in jobs:
+            f.write(f"{j['frequency']} {j['name']} {j['url']} {j['date_added']}\n")
+
+    action = "bumped" if direction == "bump" else "unbumped"
+    print(f"Job '{name}' frequency {action} from '{VALID_FREQUENCIES[current_index]}' to '{new_frequency}' successfully.")
+    log_message(f"Job '{name}' frequency {action} from '{VALID_FREQUENCIES[current_index]}' to '{new_frequency}'")
+
+def send_error_email(error_message):
+    config = load_config()
+    subject = "GPT-Diff Error Notification"
+    body = f"""
+    <html>
+    <body>
+    <h2>An error occurred in the GPT-Diff program:</h2>
+    <pre>{error_message}</pre>
+    <p>Please check the logs for more details.</p>
+    </body>
+    </html>
+    """
+    inner_send_email(subject, body, config['to_email'])
+    log_message(f"Error email sent: {error_message}")
 
 if __name__ == "__main__":
     try:
@@ -732,9 +877,16 @@ if __name__ == "__main__":
                 email_me_gptcron()
             elif args.command == "search":
                 search_jobs(args.query)
+            elif args.command == "bump":
+                adjust_job_frequency(args.name, "bump")
+            elif args.command == "unbump":
+                adjust_job_frequency(args.name, "unbump")
+            elif args.command == "test":
+                test_job(args.name)
             else:
                 parser.print_help()
     except Exception as e:
-        log_message(f"Unexpected error: {e}")
+        error_message = f"Unexpected error: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        log_message(error_message)
+        send_error_email(error_message)
         raise
-
