@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import traceback
 import difflib
 import hashlib
 import html
@@ -28,39 +29,141 @@ CONFIG_FILE = 'config.json'
 LOG_FILE = 'gpt_diff.log'
 API_KEY_FILE = 'apikey.txt'
 
+outer_prompt="""
+You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones. Provide a one-line summary of the likely reason and meaning for each relevant change. Use HTML format to include details about what changed, including embedded images when applicable. Group the changes conceptually using <h2> and <h3> tags for titles and headers. You should use embedded images in HTML format and give details about what changed; for example, you can say 'the old image <image link> was replaced with the new image <new image link>'. The overall goal is to help the reader of the email understand the overall big picture and the sense and strategy behind the change. Also, start your response with a sentence like: "The change importance is N" (where N is a number from 1 to 10, 1 being very insignificant, 10 being extremely important) and give reasons. This serves as a kind of intro sentence. Do not say things like "some details were removed." Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. Do you get it? INCLUDE ALL DETAILS; don't just summarize them. If there are specifics, give them. Note: CSS/JS-only changes are VERY low priority; they should nearly always be PRI 1 or 2. What we care about are changes which look like ones the OWNER of the site would have made, relating to what content they include on the web page, for sharing with people who care about it!
+
+Sample examples of How to Generate Summaries
+Example 0: Significant New Articles Added
+
+    Diff: [added and removed lines, related to removing old articles and addition of significant new ones.]
+
+    Bad Output: {
+        "summary": "The change primarily updates the page to include a new list of articles, reflecting recent news and content updates. as well as js and html and cass change.s",
+        "brief summary":"Html changes",
+        "score": 5
+        }
+
+    Good Output: {
+        "summary": "The change primarily updates the page with an article about Beijing, as well as focusing on more international news on Gaza and Egypt, rather than the previous story about local NYC politics. This might reflect the changing timezone, as now, it's late in the day for the US, while Europe is just waking up and may be more interested in international news.",
+        "brief summary": "More stories about the Beijing conflict, removal of NYC local politics articles.",
+        "score": 5
+       }
+
+Example 1: Text Change
+
+    Diff:
+        Old text: "The sky is blue."
+        New text: "The sky is clear and blue."
+
+    Good response:
+    {
+        "summary": "Summary:
+    <h2>Content Updates</h2>
+    <p>The description of the sky was changed from "blue" to "clear and blue."</p>",
+        "brief summary":"Added sky descriptor: 'clear'",
+        "score": 3
+    }
+
+
+
+Example 2: Image Change
+
+    Diff:
+        Old image: <img src="old_image.jpg" alt="old image">
+        New image: <img src="new_image.jpg" alt="new image">
+
+    {
+        "summary": "The page uses a new image <img class="with-max-width" src="new_image.jpg" alt="new image"> in place of the old image: <img class="with-max-width" src="old_image.jpg"></p>. ",
+        "brief summary":"Updating an image on the page. ",
+        "score": 4
+    }
+
+Remember, you may ONLY return JSON in the format. If you have comments or additional things you'd like to add, make sure they're within the JSON summary or brief summary sections! I have to parse your json upon return so you better not put anything that's not valid JSON!  And you must include all 3 parts: summary, brief summary, and score.
+
+Guide to scoring:
+1. something like increasing subscribers by 10% is worth only a score of 2-3.
+2. if an academic site adds new major articles, that's a 5 or 6. It is significant, but not major.
+3. If a site announces it's shutting down, has been attacked, or something else dramatic, that is more like and 8 or higher.
+4. if a predictions site has a large relative change about an event, that can be 5 or more. if the event is also very important, such as a war, violence, etc that can even be 8 or 9.  Think about global significance and what percent of the world would care. If it would be vital for everyone to know about something, that's a 10.
+
+so overall, if a user of the site would consider the change to be quite important, then we should give a higher score.  Also, for sites that have posts, please include the full URL if you can, too, so that we can immediately jump to th article!
+
+
+Here is the diff and context you need to summarize:
+"""
+
 email_body_template="""<html>
 <head>
     <style>
-        body {{ font-family: Arial, sans-serif; }}
-        h1 {{margin:5px; padding-left:0;}}
-        h2 {{margin: 5px; padding-left:0;}}
-        h3 {{margin: 5px; padding-left:0;}}
-
-        .job-details {{ margin: 20px; padding:10px; }}
-
-        .job-details b {{ display: inline-block; width: 100px; }}
-
-        .summary {{ margin: 20px; padding: 10px; border-radius: 5px; }}
-
-        .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-
-        img {{ max-width: 100%; height: auto; }}
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        h1, h2, h3 {{
+            margin: 10px 0;
+            padding: 0;
+        }}
+        .content-block {{
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }}
+        .job-details b {{
+            display: inline-block;
+            width: 100px;
+        }}
+        .diff {{
+            font-family: monospace;
+            white-space: pre-wrap;
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }}
+        .diff-added {{
+            background-color: #e6ffed;
+            color: #24292e;
+        }}
+        .diff-removed {{
+            background-color: #ffeef0;
+            color: #24292e;
+        }}
+        .comparison-list {{
+            list-style-type: none;
+            padding-left: 0;
+        }}
+        img {{
+            max-width: 100%;
+            height: auto;
+        }}
     </style>
 </head>
 <body>
     <h1>Changes Detected</h1>
-    <div class="job-details">
-        <h3>{brief_summary}</h3>
-        <h3>Job:</h3> {job_name}
-        <h3>URL:</h3> <a href="{url}">{url}</a>
+    <div class="content-block job-details">
+        <h3>[[brief_summary]]</h3>
+        <p><b>Job:</b> [[job_name]]</p>
+        <p><b>URL:</b> <a href="[[url]]">[[url]]</a></p>
     </div>
-    <h1>Summary:</h1>
-    <div class="summary">
-        {summary}
+
+    <div class="content-block">
+        <h2>Summary:</h2>
+        <div>[[summary]]</div>
     </div>
-    <h1>Diff:</h1>
-    <div class="diff">
-        {diff_text}
+    <div class="content-block">
+        <h2>Comparison Information:</h2>
+        [[comparison_info]]
+    </div>
+    <div class="content-block">
+        <h2>Diff:</h2>
+        <div class="diff">
+[[diff_text]]
+        </div>
     </div>
 </body>
 </html>
@@ -73,28 +176,23 @@ summary_email_body_template="""<html>
         h1 {{margin:5px; padding-left:0;}}
         h2 {{margin: 5px; padding-left:0;}}
         h3 {{margin: 5px; padding-left:0;}}
-
         .job-details {{ margin: 20px; padding:10px; }}
-
         .job-details b {{ display: inline-block; width: 100px; }}
-
         .summary {{ margin: 20px; padding: 10px; border-radius: 5px; }}
-
         .diff {{ font-family: monospace; white-space: pre; background: #f4f4f4; padding: 10px; border-radius: 5px; }}
-
         img {{ max-width: 100%; height: auto; }}
     </style>
 </head>
 <body>
     <h1>New Job Added</h1>
     <div class="job-details">
-        <h3>{brief_summary}</h3>
-        <h3>Job:</h3> {job_name}
-        <h3>URL:</h3> <a href="{url}">{url}</a>
+        <h3>[[brief_summary]]</h3>
+        <h3>Job:</h3> [[job_name]]
+        <h3>URL:</h3> <a href="[[url]]">[[url]]</a>
     </div>
     <h1>Summary:</h1>
     <div class="summary">
-        {summary}
+        [[summary]]
     </div>
 </body>
 </html>
@@ -175,10 +273,31 @@ def test_job(name=None):
 
     print("Test completed.")
 
+def check_conformity(response_json):
+    # Validate the required keys and types
+    required_keys = {'summary': str, 'brief summary': str, 'score': int}
+    for key, expected_type in required_keys.items():
+        if key not in response_json:
+            print(f"Missing required key: {key}")
+            import ipdb;ipdb.set_trace()
+            return False
+        if not isinstance(response_json[key], expected_type):
+            if key == 'score' and isinstance(response_json[key], (str, float)):
+                try:
+                    response_json[key] = int(float(response_json[key]))
+                except ValueError:
+                    print(f"Invalid type for {key}: expected {expected_type}, got {type(response_json[key])}")
+                    return False
+            else:
+                print(f"Invalid type for {key}: expected {expected_type}, got {type(response_json[key])}")
+                return False
+    return True
+
+
 def summarize_diff(diff_text, all_text, html_content, url, name):
     context_text = extract_text_from_html(html_content)
 
-    loaded_prompt = open('prompt.txt').read().strip()
+    loaded_prompt = outer_prompt
 
     prompt = f"""{loaded_prompt}
         Here is the full text of the current version of the page with the diff of changes since the previous version included.{all_text[:20000]}"
@@ -205,7 +324,10 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
     got = False
     response_json, got=attempt_to_deserialize_openai_json(response_text)
-
+    okay = check_conformity(response_json)
+    if not okay:
+        import ipdb;ipdb.set_trace()
+        sys.exit(3)
 
     if not got:
         summary = "Error parsing response"
@@ -222,6 +344,7 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     got = True
     summary, score, brief_summary = rip(response_json)
 
+
     with open(raw_response_filename, 'w') as f:
         f.write(response_text)
     return summary, score, brief_summary
@@ -233,6 +356,9 @@ def rip(response_json):
         brief_summary = response_json['brief summary']
     except:
         print(response_json)
+        sys.exit(1)
+    if type(score) is not int:
+        import ipdb;ipdb.set_trace()
     return summary, score, brief_summary
 
 
@@ -253,30 +379,52 @@ def email_me_gptcron():
     to_email= load_config()['to_email']
     inner_send_email(subject, body,to_email)
 
-def create_email_content(job_name, url, brief_summary, summary, diff_text, score):
-    escaped_diff_text = html.escape(diff_text)
+
+def create_email_content(job_name, url, brief_summary, summary, diff_text, score, current_file, compared_files):
+    def format_diff(diff):
+        formatted = ""
+        for line in diff.split('\n'):
+            if line.startswith('ADDED:'):
+                formatted += f'<span class="diff-added">{line}</span>\n'
+            elif line.startswith('REMOVED:'):
+                formatted += f'<span class="diff-removed">{line}</span>\n'
+            else:
+                formatted += line + '\n'
+        return formatted
+
+    escaped_diff_text = format_diff(html.escape(diff_text))
     formatted_summary = summary.replace('\n', '<br>')
     subject = f"GPT-diff | {job_name} | Score: {score} | {brief_summary}"
 
-    body = email_body_template.format(
-        job_name=job_name,
-        url=url,
-        summary=formatted_summary,
-        diff_text=escaped_diff_text,
-        brief_summary=brief_summary
-    )
+    current_date = datetime.fromtimestamp(os.path.getmtime(current_file)).strftime('%Y-%m-%d %H:%M:%S')
+
+    if len(compared_files) == 1:
+        old_date = datetime.fromtimestamp(os.path.getmtime(compared_files[0])).strftime('%Y-%m-%d %H:%M:%S')
+        comparison_info = f"<p>Comparing current version (downloaded on {current_date}) with previous version (downloaded on {old_date}).</p>"
+    else:
+        comparison_info = f"<p>Comparing current version (downloaded on {current_date}) with multiple previous versions:</p><ul class='comparison-list'>"
+        for file in compared_files:
+            file_date = datetime.fromtimestamp(os.path.getmtime(file)).strftime('%Y-%m-%d %H:%M:%S')
+            comparison_info += f"<li>Version downloaded on {file_date}</li>"
+        comparison_info += "</ul>"
+
+    # Use a different method to replace placeholders
+    body = email_body_template.replace("[[job_name]]", job_name)
+    body = body.replace("[[url]]", url)
+    body = body.replace("[[summary]]", formatted_summary)
+    body = body.replace("[[diff_text]]", escaped_diff_text)
+    body = body.replace("[[brief_summary]]", brief_summary)
+    body = body.replace("[[comparison_info]]", comparison_info)
 
     return subject, body
 
 def create_summary_email_content(job_name, url, brief_summary, summary):
     subject = f"GPT-diff | New job added: {job_name} | {brief_summary}"
 
-    body = summary_email_body_template.format(
-        job_name=job_name,
-        url=url,
-        summary=summary,
-        brief_summary=brief_summary
-    )
+    body = summary_email_body_template.replace("[[job_name]]", job_name)
+    body = body.replace("[[url]]", url)
+    body = body.replace("[[summary]]", summary)
+    body = body.replace("[[brief_summary]]", brief_summary)
 
     return subject, body
 
@@ -383,6 +531,12 @@ def summarize_page(context_text, url, name):
     raw_response_filename = f"openai_responses/{name}_{unique_id}_summary.json"
     got = False
     response_json, got= attempt_to_deserialize_openai_json(response_text)
+
+    okay = check_conformity(response_json)
+    if not okay:
+        import ipdb;ipdb.set_trace()
+        sys.exit(3)
+
     if not got:
         print("bad")
         return "",""
@@ -508,23 +662,42 @@ def gpt_generate_job_names(url, text):
         max_tokens=200)
 
     res = response.choices[0].message.content.strip()
-    th, got = attempt_to_deserialize_openai_json(res)
+    response, got = attempt_to_deserialize_openai_json(res)
     if not got:
         return ""
-    jobname=th['result']
+    jobname = response['result']
     if not re.match(r'^[a-zA-Z0-9-]+$', jobname):
         print(f"Error: Invalid job name: name must be alphanumeric.")
         sys.exit(1)
     return jobname
 
 def get_gpt_name(url):
-    latest_file = download_url(url, name="_no-name-yet")
-    with open(latest_file, 'r', encoding='utf-8') as file:
-        html_content = file.read()
-        soup = BeautifulSoup(html_content, 'html.parser')
-        text_content = soup.get_text(separator = ' ', strip=True)
-        response = gpt_generate_job_names(url, text_content)
-        return response
+    jobs = parse_cron_file()
+
+    def is_valid_name(name):
+        return name and name.strip()
+
+    def is_name_duplicate(name):
+        return any(job['name'] == name for job in jobs)
+
+    try:
+        latest_file = download_url(url, name="_no-name-yet")
+        with open(latest_file, 'r', encoding='utf-8') as file:
+            html_content = file.read()
+            soup = BeautifulSoup(html_content, 'html.parser')
+            text_content = soup.get_text(separator=' ', strip=True)
+            suggested_name = gpt_generate_job_names(url, text_content)
+
+            if not is_valid_name(suggested_name):
+                raise ValueError(f"Generated name '{suggested_name}' is invalid.")
+
+            if is_name_duplicate(suggested_name):
+                raise ValueError(f"Generated name '{suggested_name}' already exists.")
+
+            return suggested_name
+    except Exception as e:
+        raise ValueError(f"Failed to generate a valid job name for {url}: {str(e)}")
+
 
 def run_job(name):
     jobs = parse_cron_file()
@@ -532,7 +705,7 @@ def run_job(name):
     if not job:
         print(f"No job found with the name {name}")
         return False
-    changes_detected=False
+
     url = job["url"]
     metadata = load_metadata()
     latest_file = download_url(url, name)
@@ -541,13 +714,14 @@ def run_job(name):
     versions = get_last_n_versions(name, 10)
     last_emailed_version = metadata.get(name, {}).get("last_emailed_version", None)
 
-    if len(versions) > 1:
-        for i in range(1, len(versions)):
-            old_version = versions[i]
-            if old_version == last_emailed_version:
-                break
+    if last_emailed_version is None and len(versions) > 1:
+        last_emailed_version = versions[-1]  # Use the oldest version if no email has been sent yet
 
-        diff_text, all_text = compare_files(old_version, latest_file)
+    compared_files = []
+    checked_versions = []
+
+    if len(versions) > 1:
+        diff_text, all_text = compare_files(last_emailed_version, latest_file)
 
         if diff_text:
             with open(latest_file, 'r') as f:
@@ -555,17 +729,25 @@ def run_job(name):
             log_message(f"Detected changes for job {name} at {url}")
 
             summary, score, brief_summary = summarize_diff(diff_text, all_text, html_content, url, name)
-            if not summary or not score or not brief_summary:
-                return
+
+            compared_files = [last_emailed_version, latest_file]
+            for version in versions:
+                if version == latest_file:
+                    break
+                checked_versions.append(version)
 
             if score >= 5:
-                subject, body = create_email_content(job["name"], url, brief_summary, summary, diff_text, score)
+                subject, body = create_email_content(
+                    job["name"], url, brief_summary, summary, diff_text, score,
+                    latest_file, compared_files
+                )
                 send_email(job["name"], subject, body, load_config()['to_email'])
                 metadata[name] = {"last_emailed_version": latest_file}
                 changes_detected = True
                 save_metadata(metadata)
             else:
                 log_message(f"Score {score} below threshold for job {name}. Email not sent.")
+                log_message(f"Checked versions: {', '.join(os.path.basename(v) for v in checked_versions)}")
         else:
             log_message(f"No changes detected for job: {name}")
     else:
@@ -589,22 +771,29 @@ def run_job(name):
 
 def add_job(name, url, frequency):
     if not name:
-        name= get_gpt_name(url)
-    if frequency==None:
-        frequency='weekly'
+        try:
+            name = get_gpt_name(url)
+        except ValueError as e:
+            print(f"Error: {str(e)}")
+            print("Job addition failed. Please provide a valid, unique name manually.")
+            return
+
+    jobs = parse_cron_file()
+    if any(job['name'] == name for job in jobs):
+        print(f"Error: A job with the name '{name}' already exists.")
+        return
+
+    if frequency is None:
+        frequency = 'weekly'
 
     if not url.startswith(('http://', 'https://')):
         url = 'http://' + url
     if not is_valid_url(url):
         print("Error: Invalid URL format.")
-        sys.exit(1)
-    if frequency not in VALID_FREQUENCIES:
-        print(f"Error: Invalid frequency, must be 'hourly', 'daily', 'weekly', 'minutely'")
-        sys.exit(1)
+        return
 
-    jobs = parse_cron_file()
-    if any(job['name'] == name for job in jobs):
-        print(f"Error: A job with the name '{name}' already exists.")
+    if frequency not in VALID_FREQUENCIES:
+        print(f"Error: Invalid frequency, must be one of {', '.join(VALID_FREQUENCIES)}")
         return
 
     backup_cron_file()
@@ -613,6 +802,7 @@ def add_job(name, url, frequency):
         f.write(cron_entry)
     print(f"Job '{name}' added successfully.")
     log_message(f"Job added: {name}, {url}, {frequency}")
+
 
 def remove_job(name):
     jobs = parse_cron_file()
@@ -760,43 +950,37 @@ def get_last_n_versions(name, n=5):
     files = sorted([f for f in os.listdir(job_dir) if os.path.isfile(os.path.join(job_dir, f))], reverse=True)
     return [os.path.join(job_dir, f) for f in files[:n]]
 
-def simple(s):
-    return json.loads(s)
-
-def try1(s):
-    fix = s.strip('```json\n').strip('\n```')
-    if fix.startswith('json'):
-        fix = fix[4:]
-    return json.loads(fix)
-
-def try2(s):
-    s = html.unescape(s)
-    s = s.strip('```json\n').strip('\n```')
-    return json.loads(s)
-
-def try3(s):
-    s = html.unescape(s)
-    s = s.replace('\\\n', '')
-    s = s.replace('\\', '')
-    s = s.strip('```json\n').strip('\n```')
-    return json.loads(s)
+def preprocess_json(s):
+    # Replace newlines within JSON string values
+    return re.sub(r'("(?:[^"\\]|\\.)*")|[\n\r]', lambda m: m.group(1) or ' ', s)
 
 def attempt_to_deserialize_openai_json(response_text):
     got=False
     response_json=None
-    response_text=response_text.replace('brief_summary','brief summary')
+    preprocessed_text = preprocess_json(response_text)
 
-    for attempt in [simple, try1, try2, try3]:
+    attempts = [
+        lambda s: json.loads(s),  # Simple JSON parsing
+        lambda s: json.loads(s.strip('```json\n').strip('\n```')),  # Remove code blocks
+        lambda s: json.loads(html.unescape(s)),  # Unescape HTML entities
+        lambda s: json.loads(re.sub(r'\\(.)', r'\1', s))  # Remove extra backslashes
+    ]
+
+    for attempt in attempts:
         try:
-            response_json = attempt(response_text)
-            got=True
+            response_json = attempt(preprocessed_text)
+            got = True
             break
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            #print(f"Attempt failed: {str(e)}")
             pass
+
     if not got:
-        print("bad deserialization of json: .%s"%response_text)
-        return "",False
-    return response_json,got
+        print(f"Bad deserialization of json: {response_text}")
+        return "", False
+
+
+    return response_json, got
 
 def adjust_job_frequency(name, direction):
     jobs = parse_cron_file()
