@@ -284,7 +284,6 @@ def check_conformity(response_json):
     for key, expected_type in required_keys.items():
         if key not in response_json:
             print(f"Missing required key: {key}")
-            import ipdb;ipdb.set_trace()
             return False
         if not isinstance(response_json[key], expected_type):
             if key == 'score' and isinstance(response_json[key], (str, float)):
@@ -539,9 +538,7 @@ def summarize_page(context_text, url, name):
 
     okay = check_conformity(response_json)
     if not okay:
-        import ipdb;ipdb.set_trace()
-        sys.exit(3)
-
+        raise
     if not got:
         print("bad")
         return "",""
