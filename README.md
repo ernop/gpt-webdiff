@@ -2,23 +2,25 @@
 
 ******SETUP******
 
-* git clone https://github.com/ernop/gpt-webdiff.git
+* `git clone https://github.com/ernop/gpt-webdiff.git`
+* `cd gpt-webdiff`
 * You need at least python3.7
 * put your openai key into apikey.txt
 * configure config_example.json by putting in your email address, putting in your special gmail password
 * rename this file to config.json so that the program will find it. obviously, this file is super secret so don't share it.
 * You have to get your gmail special password from somewhere in gmail's system - you can't use your regular one.
 * set up an environment and make it so the program can run - either in your system python or else by making a virtual environment and then installing the required stuff by using
-* python3 -m venv gpt-diff-env
-* source gpt-diff-env/bin/activate
-* cd gpt-webdiff
-* pip install -r gpt-webdiff.requirements.txt
-* run the program in python3: python3 gptcron.py help to see if it works.
+* `python3 -m venv gpt-diff-env`
+* `source gpt-diff-env/bin/activate`
+* `pip install -r gptrequirements.txt`
+* `python3 gptcron.py help`
+* `python3 gptcron.py list`
+* `python3 gptcron.py add http://en.wikipedia.org`
+* the above should add the job after making up a suitable name for it.
+* gradually add pages with python3, and you should start getting emails.
 * now you need to set it to run automatically, using crontab.
 * try crontab -e and add this line BUT YOU HAVE TO MODIFY THE PATH
 * */1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gptcron.py check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1
-* gradually add pages with python3, and you should start getting emails.
-
 
 TODO
 * added emailing myself periodically, this is good.
@@ -71,3 +73,4 @@ okay, it sends emails, but there are problems.  See image:
 1. the subject is too long. I want the score, the name of the page and sender, and a new VERY BRIEF summary of the changes.
 2. The body of the email doesn't contain any details now? I want all the details, and I want them to be very easy to read. So the top part should explain the full diff, including what was added, what was changed (including before/after), and what was removed.
 3. The next section of the email should contain as best as you can a copy of the full text diff, and since it contains html, we have to protect it somehow so I can see the raw diff of the file within gmail.
+
