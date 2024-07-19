@@ -12,7 +12,7 @@
 * set up an environment and make it so the program can run - either in your system python or else by making a virtual environment and then installing the required stuff by using
 * `python3 -m venv gpt-diff-env`
 * `source gpt-diff-env/bin/activate`
-* `pip install -r gptrequirements.txt`
+* `pip install -r requirements.txt`
 * `python3 gptcron.py help`
 * `python3 gptcron.py list`
 * `python3 gptcron.py add http://en.wikipedia.org`
