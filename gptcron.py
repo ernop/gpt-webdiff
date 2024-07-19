@@ -24,6 +24,9 @@ print('changing to:', script_dir)
 os.chdir(script_dir)
 
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
+CONFIG_FILE = 'config.json'
+LOG_FILE = 'gpt_diff.log'
+API_KEY_FILE = 'apikey.txt'
 
 def setup_argparse():
     parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
@@ -59,6 +62,10 @@ def setup_argparse():
 
     debug_parser = subparsers.add_parser('reparse', help='Debug JSON parsing by dropping into ipdb')
     debug_parser.add_argument('name', type=str, help='Alphanumeric label for the job to debug')
+
+    search_parser = subparsers.add_parser('search', help='Search for jobs by name or URL. Usage: search <query>')
+    search_parser.add_argument('query', type=str, help='Search query for job name or URL')
+
 
     return parser
 
@@ -203,9 +210,6 @@ def inner_send_email(subject, body, to_email):
 
 
 
-CONFIG_FILE = 'config.json'
-LOG_FILE = 'gpt_diff.log'
-API_KEY_FILE = 'apikey.txt'
 
 def load_config():
     with open(CONFIG_FILE, 'r') as f:
@@ -380,7 +384,7 @@ def is_valid_url(url):
         r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     return re.match(regex, url) is not None
-VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
+
 
 def gpt_generate_job_names(url, text):
     openai.api_key = load_apikey()
@@ -394,15 +398,15 @@ def gpt_generate_job_names(url, text):
     Please return JUST the name you suggest, simplest form possible, max 4 words or so, as a json string like this: {{result: "<your result>"}}.
     """
     client = OpenAI(api_key=load_apikey())
-    
-    
+
+
     response = client.chat.completions.create(model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant which always returns json."},
                 {"role": "user", "content": prompt}
         ],
         max_tokens=200)
-    
+
     res = response.choices[0].message.content.strip()
     th, got = attempt_to_deserialize_openai_json(res)
     if not got:
@@ -491,7 +495,6 @@ def run_job(name):
     return changes_detected
 
 def add_job(name, url, frequency):
-
     if not name:
         name= get_gpt_name(url)
     if frequency==None:
@@ -639,6 +642,23 @@ def check_cron(force = False):
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
 
 
+def search_jobs(query):
+    jobs = parse_cron_file()
+    matching_jobs = [job for job in jobs if query.lower() in job["name"].lower() or query.lower() in job["url"].lower()]
+
+    if not matching_jobs:
+        print(f"No jobs found matching '{query}'.")
+        return
+
+    max_lengths = [max(len(str(job[key])) for job in matching_jobs) for key in ["frequency", "name", "url", "date_added"]]
+
+    print(f"Jobs matching '{query}':")
+    print(f"{'Frequency'.ljust(max_lengths[0])}  {'Name'.ljust(max_lengths[1])}  {'URL'.ljust(max_lengths[2])}  {'Date Added'.ljust(max_lengths[3])}")
+    print("=" * (sum(max_lengths) + 6))
+    for job in matching_jobs:
+        print(f"{job['frequency'].ljust(max_lengths[0])}  {job['name'].ljust(max_lengths[1])}  {job['url'].ljust(max_lengths[2])}  {job['date_added'].ljust(max_lengths[3])}")
+
+
 def simple(s):
     return json.loads(s)
 
@@ -710,6 +730,8 @@ if __name__ == "__main__":
                 debug_json_parsing(args.name)
             elif args.command=='email-backup':
                 email_me_gptcron()
+            elif args.command == "search":
+                search_jobs(args.query)
             else:
                 parser.print_help()
     except Exception as e:
