@@ -1,4 +1,6 @@
 {
-    "email": "krag@example.com",
+    "login_email": "krag@example.com",
+    "from_email": "krag@example.com",
+    "to_email": "krag@example.com",
     "password":"aaaa bbbb cccc dddd"
 }
