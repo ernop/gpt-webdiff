@@ -1,3 +1,6 @@
+![image](https://github.com/user-attachments/assets/7678339f-742d-4ca5-bd92-cefb25943b89)
+
+
 TODO
 * added emailing myself periodically, this is good.
 * adding having gpt4o make up possible names so you just do python3 gptcron.py add URL and it reads the url for the first time and does everything right away.
