@@ -19,7 +19,7 @@
 * the above should add the job after making up a suitable name for it.
 * gradually add pages with python3, and you should start getting emails.
 * now you need to set it to run automatically, using crontab.
-* try `crontab -e` and add this line BUT YOU HAVE TO MODIFY THE PATH
+* try `crontab -e` and add this line BUT YOU HAVE TO MODIFY THE PATHS
 * `*/1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gptcron.py check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1`
 
 TODO
