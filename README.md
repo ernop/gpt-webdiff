@@ -5,9 +5,9 @@
 * `git clone https://github.com/ernop/gpt-webdiff.git`
 * `cd gpt-webdiff`
 * You need at least python3.7
-* put your openai key into apikey.txt
-* configure config_example.json by putting in your email address, putting in your special gmail password
-* rename this file to config.json so that the program will find it. obviously, this file is super secret so don't share it.
+* put your openai key into `apikey.txt`
+* configure `config_example.json` by putting in your email address, putting in your special gmail password
+* rename this file to `config.json` so that the program will find it. obviously, this file is super secret so don't share it.
 * You have to get your gmail special password from somewhere in gmail's system - you can't use your regular one.
 * set up an environment and make it so the program can run - either in your system python or else by making a virtual environment and then installing the required stuff by using
 * `python3 -m venv gpt-diff-env`
@@ -19,8 +19,8 @@
 * the above should add the job after making up a suitable name for it.
 * gradually add pages with python3, and you should start getting emails.
 * now you need to set it to run automatically, using crontab.
-* try crontab -e and add this line BUT YOU HAVE TO MODIFY THE PATH
-* */1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gptcron.py check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1
+* try `crontab -e` and add this line BUT YOU HAVE TO MODIFY THE PATH
+* `*/1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gptcron.py check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1`
 
 TODO
 * added emailing myself periodically, this is good.
