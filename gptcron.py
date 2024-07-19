@@ -23,6 +23,11 @@ script_path = os.path.abspath(__file__)
 script_dir = os.path.dirname(script_path)
 print('changing to:', script_dir)
 os.chdir(script_dir)
+if not os.path.exists("apikey.txt"):
+    print("no file apikey.txt found in this directory. You need this.")
+
+if not os.path.exists("config.json"):
+    print("no file config.json found in this directory. Edit config_example.json to include your real values, then rename it to that name and try again.")
 
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
 CONFIG_FILE = 'config.json'
@@ -696,6 +701,7 @@ def get_gpt_name(url):
 
             return suggested_name
     except Exception as e:
+        import ipdb;ipdb.set_trace()
         raise ValueError(f"Failed to generate a valid job name for {url}: {str(e)}")
 
 
