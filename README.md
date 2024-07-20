@@ -74,3 +74,9 @@ okay, it sends emails, but there are problems.  See image:
 2. The body of the email doesn't contain any details now? I want all the details, and I want them to be very easy to read. So the top part should explain the full diff, including what was added, what was changed (including before/after), and what was removed.
 3. The next section of the email should contain as best as you can a copy of the full text diff, and since it contains html, we have to protect it somehow so I can see the raw diff of the file within gmail.
 
+
+******FUTURE******
+
+1. you should be able to build in context so that the results per area will be customizable to youpersonally
+2. it would be cool to be able to reply to the emails with guidance like "you gave this result too high of a score, here's why" and that might influence something about how that query would run next time.
+3. it would be awesome to be able to make images (ideogram.ai api anyone?) based on the diffs so that when they arrive you'd have something to lookat.  this only gets better obviously.
