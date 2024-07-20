@@ -281,9 +281,11 @@ def test_job(name=None):
 def check_conformity(response_json):
     # Validate the required keys and types
     required_keys = {'summary': str, 'brief summary': str, 'score': int}
+
     for key, expected_type in required_keys.items():
         if key not in response_json:
             print(f"Missing required key: {key}")
+            print(f"and the json is::: {response_json}")
             return False
         if not isinstance(response_json[key], expected_type):
             if key == 'score' and isinstance(response_json[key], (str, float)):
@@ -304,11 +306,20 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     loaded_prompt = outer_prompt
 
     prompt = f"""{loaded_prompt}
-        Here is the full text of the current version of the page with the diff of changes since the previous version included.{all_text[:20000]}"
+        Here is the ONLY change that has happened in the page. Your summary should focus on THIS FOLLOWING CHANGE:
+        ============
+        {diff_text}
+        ============
+
+        Just as backup information for you, here is the full text of the current version of the page with the diff of changes since the previous version included.
+
+        ============
+        {all_text[:20000]}"
+        ============
 
         Please provide your response in the following JSON format:
         {{
-            "summary": "generate a text summary of the webpage. Use newlines to separate paragraphs covering all the main aspects of the page. Make sure to cover it broadly.",
+            "summary": "generate a text summary of the diff. Use newlines to separate paragraphs covering all the main aspects of changes. We are interested in the details and the overall meaning and direction of the CHANGES. Use the context as guidance.",
             "brief summary": "a one-sentence, pure text summary of the changes. This is for use within an email subject line, so it cannot be very long.",
             "score": your_score_here (integer from 1 to 10),
         }}
@@ -330,7 +341,7 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     response_json, got=attempt_to_deserialize_openai_json(response_text)
     okay = check_conformity(response_json)
     if not okay:
-        import ipdb;ipdb.set_trace()
+        #~ import ipdb;ipdb.set_trace()
         sys.exit(3)
 
     if not got:
@@ -586,7 +597,8 @@ def get_last_file(name):
         return os.path.join(job_dir, last_file), last_run_time
     return None, None
 
-#reutrns changed / new lines, and all text subsequently.
+
+#returns changed / new lines, and all text subsequently.
 def compare_files(html1, html2):
     def extract_text(html_file):
         with open(html_file, 'r', encoding='utf-8') as f:
@@ -595,9 +607,13 @@ def compare_files(html1, html2):
 
     old_lines = extract_text(html1).splitlines()
     new_lines = extract_text(html2).splitlines()
+    if not old_lines or not new_lines:
+        return "",""
 
     differ = difflib.Differ()
-    diff = list(differ.compare(old_lines, new_lines))
+
+    diff = differ.compare(old_lines, new_lines)
+    #this is the area to pay attention to. Mainly, I want it so that we both 1) clearly tell the output code to pay attention only to CHANGED lines
 
     diff_lines=[]
     all_lines=[]
@@ -606,21 +622,22 @@ def compare_files(html1, html2):
         if not line:
             continue
         all_lines.append(line)
+        #~ import ipdb;ipdb.set_trace()
         if line.startswith('  '):
             pass
         elif line.startswith('- '):
-            diff_lines.append(line.replace("+ ","ADDED: ",1))
+            diff_lines.append(line)
         elif line.startswith('+ '):
-            diff_lines.append(line.replace("- ","REMOVED: ",1))
+            diff_lines.append(line)
 
-    diff_text = '\n'.join(diff_lines)
-    all_text= '\n'.join(all_lines)
+    diff_text = '\r\n'.join(diff_lines)
+    all_text= '\r\n'.join(all_lines)
+    #~ print("---------")
+    #~ print(all_text)
+    #~ print("---------")
+    #~ print(diff_text)
 
-
-    if diff_text:
-        print(diff_text)
-        #~ import ipdb; ipdb.set_trace()
-
+    #~ import ipdb;ipdb.set_trace()
     return diff_text, all_text
 
 def download_url(url, name):
@@ -727,6 +744,7 @@ def run_job(name):
         diff_text, all_text = compare_files(last_emailed_version, latest_file)
 
         if diff_text:
+            print("DIFF TEXT:",diff_text)
             with open(latest_file, 'r') as f:
                 html_content = f.read()
             log_message(f"Detected changes for job {name} at {url}")
