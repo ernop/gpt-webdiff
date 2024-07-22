@@ -35,38 +35,48 @@ LOG_FILE = 'gpt_diff.log'
 API_KEY_FILE = 'apikey.txt'
 
 outer_prompt="""
-You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones. Provide a one-line summary of the likely reason and meaning for each relevant change. Use HTML format to include details about what changed, including embedded images when applicable. Group the changes conceptually using <h2> and <h3> tags for titles and headers. You should use embedded images in HTML format and give details about what changed; for example, you can say 'the old image <image link> was replaced with the new image <new image link>'. The overall goal is to help the reader of the email understand the overall big picture and the sense and strategy behind the change. Also, start your response with a sentence like: "The change importance is N" (where N is a number from 1 to 10, 1 being very insignificant, 10 being extremely important) and give reasons. This serves as a kind of intro sentence. Do not say things like "some details were removed." Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. Do you get it? INCLUDE ALL DETAILS; don't just summarize them. If there are specifics, give them. Note: CSS/JS-only changes are VERY low priority; they should nearly always be PRI 1 or 2. What we care about are changes which look like ones the OWNER of the site would have made, relating to what content they include on the web page, for sharing with people who care about it!
+You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones.  You will be given multiple types of information about a change in a page over time.  You will then produce multiple items: a brief summary (one sentence summary), a score from 0-10, and a summary which contains a longer-form, HTML-enabled meaningful summary of the specifics of the change. Your two main goals are to be specific about what exactly changed. Only if you can do that, and only if you are sure, may you then also speculate on what this change represents or means.  Use HTML formatting to include details about what changed, including embedded images when applicable.
 
-Sample examples of How to Generate Summaries
-Example 0: Significant New Articles Added
+Group the changes conceptually using <h1> through <h3> tags for titles and headers. You should use embedded images in HTML format and give details about what changed; for example, you can say 'the old image <image link> was replaced with the new image <new image link>'. Please do this so that the actual image will render from within an html email, which is the output destination of the HTML you are generating.
 
-    Diff: [added and removed lines, related to removing old articles and addition of significant new ones.]
+BIG PICTURE: The overall goal is to help the reader of the email understand the specifics AND the overall big picture and the sense and strategy behind the change.
 
-    Bad Output: {
-        "summary": "The change primarily updates the page to include a new list of articles, reflecting recent news and content updates. as well as js and html and cass change.s",
-        "brief summary":"Html changes",
-        "score": 5
+Do not say generic things like "some details were removed." Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. INCLUDE ALL DETAILS; don't just summarize them.
+
+If there are specifics, give them. Note: CSS/JS-only changes are VERY low priority; they should nearly always be PRI 1 or 2. What we care about are changes which look like ones the OWNER and EDITOR of the site would have made, relating to what content they include on the web page, for sharing with people who care about it!  That is, if the site is about chess, then we are interested in chess news; in cases like that, we are not interested in background library-level js or css changes.
+
+Sample examples of How to Generate Summaries. In these examples, brackets are used to indicate areas of detail and summarization you should include based on the contents you are given.
+
+Example 1: Significant New Articles Added
+
+    + [a story about molybdenum was added, relating how in Geneva on Tuesday, it was demonstated to trivially enable fusion power, in a dramatic headline claiming that it has been found to be a source of fusion power, with a full demonstration already done and approved by a panel of 19 Nobel Prize winners, etc. with many more details.]
+    - [nothing was removed]
+
+    Example Bad Output: {
+        "summary": "The change primarily updates the page to include information about a chemical element and a new scientific breakthrough.  There is a new list of articles, reflecting recent news and content updates. as well as js and html and css changes", <= this is bad because it's not specific
+        "brief summary":"Html changes", <==this is bad because it's super generic.
+        "score": 5 <= this is bad because it's too low. The discovery of fusion would be a gigantic, important event.
         }
 
     Good Output: {
-        "summary": "The change primarily updates the page with an article about Beijing, as well as focusing on more international news on Gaza and Egypt, rather than the previous story about local NYC politics. This might reflect the changing timezone, as now, it's late in the day for the US, while Europe is just waking up and may be more interested in international news.",
-        "brief summary": "More stories about the Beijing conflict, removal of NYC local politics articles.",
-        "score": 5
+        "summary": "Today in Geneva, a panel of Nobel prize winners led by [name] confirmed a demonstration of fusion power is legitimiate. It was done by [group], on [date], [many details] [following this, give all other higher level speculation, etc, predictions] [ in HTML format]",
+        "brief summary": "Fusion discovered and confirmed by nobel prize winners!",
+        "score": 10 <= this is a super major event.
        }
 
-Example 1: Text Change
+Example 2: Text Change on a site "votingnews.com"
 
     Diff:
-        Old text: "The sky is blue."
-        New text: "The sky is clear and blue."
+        - "We support the right of all americans to vote free of interference."
+        + "We support American voting rights as well as the need to intensify voter surveillance and anti-fraud measures. Voting is meaningless without validation."
 
     Good response:
     {
         "summary": "Summary:
-    <h2>Content Updates</h2>
-    <p>The description of the sky was changed from "blue" to "clear and blue."</p>",
-        "brief summary":"Added sky descriptor: 'clear'",
-        "score": 3
+    <h2>Votingnews.com seriously changes voting policy to emphasize security.</h2>
+    <p>[details on time, person, reasons, all other new information in the article/page.]</p>",
+        "brief summary":"Votingnews.com seriously changes voting policy to emphasize security.",
+        "score": 6 <= for this site, it's an important result, but in the grand scope of things, a change in a single, not-very-famous site's opinion isn't that huge, so it's only a 6.
     }
 
 
@@ -74,12 +84,12 @@ Example 1: Text Change
 Example 2: Image Change
 
     Diff:
-        Old image: <img src="old_image.jpg" alt="old image">
-        New image: <img src="new_image.jpg" alt="new image">
+        - <img src="cat_image.jpg" alt="old image">
+        + <img src="dog_image.jpg" alt="new image">
 
     {
-        "summary": "The page uses a new image <img class="with-max-width" src="new_image.jpg" alt="new image"> in place of the old image: <img class="with-max-width" src="old_image.jpg"></p>. ",
-        "brief summary":"Updating an image on the page. ",
+        "summary": "[details as many as we can get in HTML format] ",
+        "brief summary":"The page switches images from a cat to a dog.",
         "score": 4
     }
 
@@ -90,9 +100,6 @@ Guide to scoring:
 2. if an academic site adds new major articles, that's a 5 or 6. It is significant, but not major.
 3. If a site announces it's shutting down, has been attacked, or something else dramatic, that is more like and 8 or higher.
 4. if a predictions site has a large relative change about an event, that can be 5 or more. if the event is also very important, such as a war, violence, etc that can even be 8 or 9.  Think about global significance and what percent of the world would care. If it would be vital for everyone to know about something, that's a 10.
-
-so overall, if a user of the site would consider the change to be quite important, then we should give a higher score.  Also, for sites that have posts, please include the full URL if you can, too, so that we can immediately jump to th article!
-
 
 Here is the diff and context you need to summarize:
 """
@@ -204,7 +211,7 @@ summary_email_body_template="""<html>
 """
 
 def setup_argparse():
-    parser = argparse.ArgumentParser(description='GPT-Diff: Monitor web pages for changes and get detailed email summaries of those changes.')
+    parser = argparse.ArgumentParser(description='gpt-diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
 
     add_parser = subparsers.add_parser('add', help='Add a new URL to monitor. Usage: `add <URL> <name, if missing will be filled in by gpt4o.> [weekly|daily|hourly|minutely <default weekly>]` or `add <URL> [name, if missing will be filled in by gpt4o.] [weekly|daily|hourly|minutely <default weekly>]`')
@@ -306,12 +313,14 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     loaded_prompt = outer_prompt
 
     prompt = f"""{loaded_prompt}
-        Here is the ONLY change that has happened in the page. Your summary should focus on THIS FOLLOWING CHANGE:
-        ============
-        {diff_text}
+        Here is the full list of all lines added or removed in this time interval.  Your summary is relating to what the addition or removal of this content means; your summary is NOT about the lines that remained unchanged:
         ============
 
-        Just as backup information for you, here is the full text of the current version of the page with the diff of changes since the previous version included.
+        {diff_text}
+
+        ============
+
+        As additional context, here is the full text of the current version of the page with the diff of changes since the previous version included.
 
         ============
         {all_text[:20000]}"
@@ -321,9 +330,11 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
         {{
             "summary": "generate a text summary of the diff. Use newlines to separate paragraphs covering all the main aspects of changes. We are interested in the details and the overall meaning and direction of the CHANGES. Use the context as guidance.",
             "brief summary": "a one-sentence, pure text summary of the changes. This is for use within an email subject line, so it cannot be very long.",
-            "score": your_score_here (integer from 1 to 10),
+            "score": your_score_here (integer from 0 to 10),
         }}
     """
+
+
     client = OpenAI(api_key=load_apikey())
 
     response = client.chat.completions.create(model="gpt-4o",
@@ -335,8 +346,6 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
 
     response_text = response.choices[0].message.content.strip()
     unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
-
-    raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
     got = False
     response_json, got=attempt_to_deserialize_openai_json(response_text)
     okay = check_conformity(response_json)
@@ -348,19 +357,22 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
         summary = "Error parsing response"
         brief_summary = "Fail"
         score = 0
-        raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.json"
+        raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.txt"
         with open(raw_response_filename, 'w') as f:
             f.write(response_text)
         print("ERROR")
         return "","",""
     os.makedirs('openai_responses', exist_ok=True)
 
-    raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.json"
+    raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_okay.txt"
     got = True
     summary, score, brief_summary = rip(response_json)
 
 
     with open(raw_response_filename, 'w') as f:
+        f.write("================PROMPT:==============\r\n\r\n")
+        f.write(prompt)
+        f.write("\r\n\r\n================RESPONSE:==============\r\n\r\n")
         f.write(response_text)
     return summary, score, brief_summary
 
@@ -409,7 +421,7 @@ def create_email_content(job_name, url, brief_summary, summary, diff_text, score
 
     escaped_diff_text = format_diff(html.escape(diff_text))
     formatted_summary = summary.replace('\n', '<br>')
-    subject = f"GPT-diff | {job_name} | Score: {score} | {brief_summary}"
+    subject = f"gpt-diff | {job_name} | Score: {score} | {brief_summary}"
 
     current_date = datetime.fromtimestamp(os.path.getmtime(current_file)).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -434,7 +446,7 @@ def create_email_content(job_name, url, brief_summary, summary, diff_text, score
     return subject, body
 
 def create_summary_email_content(job_name, url, brief_summary, summary):
-    subject = f"GPT-diff | New job added: {job_name} | {brief_summary}"
+    subject = f"gpt-diff | New job added: {job_name} | {brief_summary}"
 
     body = summary_email_body_template.replace("[[job_name]]", job_name)
     body = body.replace("[[url]]", url)
@@ -519,7 +531,7 @@ def debug_json_parsing(job_name):
     attempt_to_deserialize_openai_json(raw_text)
 
 
-def summarize_page(context_text, url, name):
+def summarize_page(context_text, url, name, job):
 
     prompt = f"""Please provide a summary of the page content following, using the following JSON format:
         {{
@@ -549,7 +561,7 @@ def summarize_page(context_text, url, name):
 
     okay = check_conformity(response_json)
     if not okay:
-        raise
+        raise  Exception("Problem in job: %s, invalid json: %s"%str(response_json), str(job))
     if not got:
         print("bad")
         return "",""
@@ -603,10 +615,12 @@ def compare_files(html1, html2):
     def extract_text(html_file):
         with open(html_file, 'r', encoding='utf-8') as f:
             soup = BeautifulSoup(f.read(), 'html.parser')
-            return soup.get_text(separator='\n', strip=True)
+            res = soup.text.split('\n')
+            return res
 
-    old_lines = extract_text(html1).splitlines()
-    new_lines = extract_text(html2).splitlines()
+    old_lines = extract_text(html1)
+    new_lines = extract_text(html2)
+    #~ import ipdb;ipdb.set_trace()
     if not old_lines or not new_lines:
         return "",""
 
@@ -622,7 +636,7 @@ def compare_files(html1, html2):
         if not line:
             continue
         all_lines.append(line)
-        #~ import ipdb;ipdb.set_trace()
+
         if line.startswith('  '):
             pass
         elif line.startswith('- '):
@@ -630,14 +644,11 @@ def compare_files(html1, html2):
         elif line.startswith('+ '):
             diff_lines.append(line)
 
+    #~ import ipdb;ipdb.set_trace()
+
+
     diff_text = '\r\n'.join(diff_lines)
     all_text= '\r\n'.join(all_lines)
-    #~ print("---------")
-    #~ print(all_text)
-    #~ print("---------")
-    #~ print(diff_text)
-
-    #~ import ipdb;ipdb.set_trace()
     return diff_text, all_text
 
 def download_url(url, name):
@@ -659,20 +670,26 @@ def is_valid_url(url):
     return re.match(regex, url) is not None
 
 
-def gpt_generate_job_names(url, text):
+def gpt_generate_job_names(url, text, exclusions):
     openai.api_key = load_apikey()
     short_text=text[:1000]
+    exclusion_text=""
+    if exclusions:
+        exclusion_text ="Additionally, this name is already taken, so please do not use it and instead use another one: %s\r\n"%str(exclusions)
+
     prompt=f"""I would like to create a short alphanumeric name (also including - for spaces bewteen words) for a webpage which has content given below.
     Let's think of some reasonable options. Our goals are simplicity, directness, making sure the context makes sense,etc. For example, if the url was http://nytimes.com and the content was: 'The New York Times - Breaking News, US News, World News and Videos Skip to content Skip to site index SKIP ADVERTISEMENT U.S. International Canada Today's Paper U.S. Sections U.S. Politics New York California Education Health Obituaries Science Climate Weather Sports Business Tech The Upshot The Magazine U.S. Politics 2024 Elections ' you should return the option: 'new-york-times'. Keep it simple.  That's because the hostname part of the URL is very important; that tells you what domain / page we are really looking at. The contents and remainder of the URL can also be used to hint at the result that is best.
+
+    Good names are short, and include both the topic being discussed, and if it's generic, also include perhaps the URL or source of the information.
+    {exclusion_text}
 
     In this case, we are looking at the following URL: {url} which has this initial content
     {text}.
 
     Please return JUST the name you suggest, simplest form possible, max 4 words or so, as a json string like this: {{result: "<your result>"}}.
     """
+
     client = OpenAI(api_key=load_apikey())
-
-
     response = client.chat.completions.create(model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a helpful assistant which always returns json."},
@@ -690,7 +707,8 @@ def gpt_generate_job_names(url, text):
         sys.exit(1)
     return jobname
 
-def get_gpt_name(url):
+#also checks that the name is unique.
+def get_gpt_name(url, exclusions = None):
     jobs = parse_cron_file()
 
     def is_valid_name(name):
@@ -705,14 +723,18 @@ def get_gpt_name(url):
             html_content = file.read()
             soup = BeautifulSoup(html_content, 'html.parser')
             text_content = soup.get_text(separator=' ', strip=True)
-            suggested_name = gpt_generate_job_names(url, text_content)
+            suggested_name = gpt_generate_job_names(url, text_content, exclusions)
 
             if not is_valid_name(suggested_name):
                 raise ValueError(f"Generated name '{suggested_name}' is invalid.")
 
             if is_name_duplicate(suggested_name):
-                raise ValueError(f"Generated name '{suggested_name}' already exists.")
-
+                #if we already have been excluded from a name, and yet we generated it again or another existing one too, just fail.
+                if exclusions:
+                    raise ValueError(f"Generated name '{suggested_name}' already exists.")
+                else:
+                    #try one time to generate another one, overcoming the last duplicate
+                    return get_gpt_name(url, suggested_name)
             return suggested_name
     except Exception as e:
         import ipdb;ipdb.set_trace()
@@ -781,7 +803,7 @@ def run_job(name):
             summary, brief_summary = '', ''
             log_message(f"First-time check for job {name} at {url} got no data from the page.")
         else:
-            summary, brief_summary = summarize_page(context_text, url, name)
+            summary, brief_summary = summarize_page(context_text, url, name, job)
             subject, body = create_summary_email_content(job["name"], url, brief_summary, summary)
             send_email(job["name"], subject, body, load_config()['to_email'])
             changes_detected = True
@@ -791,7 +813,17 @@ def run_job(name):
     return changes_detected
 
 def add_job(name, url, frequency):
-    if not name:
+    jobs = parse_cron_file()
+
+    if any(job['url']==url for job in jobs):
+        print("a job with this URL already exists.")
+        return
+
+    if name:
+        if any(job['name'] == name for job in jobs):
+            print(f"Error: A job with the name '{name}' already exists.")
+            return
+    else:
         try:
             name = get_gpt_name(url)
         except ValueError as e:
@@ -799,10 +831,7 @@ def add_job(name, url, frequency):
             print("Job addition failed. Please provide a valid, unique name manually.")
             return
 
-    jobs = parse_cron_file()
-    if any(job['name'] == name for job in jobs):
-        print(f"Error: A job with the name '{name}' already exists.")
-        return
+
 
     if frequency is None:
         frequency = 'weekly'
@@ -1036,11 +1065,11 @@ def adjust_job_frequency(name, direction):
 
 def send_error_email(error_message):
     config = load_config()
-    subject = "GPT-Diff Error Notification"
+    subject = "Gpt-diff Error Notification"
     body = f"""
     <html>
     <body>
-    <h2>An error occurred in the GPT-Diff program:</h2>
+    <h2>An error occurred in the gpt-diff program:</h2>
     <pre>{error_message}</pre>
     <p>Please check the logs for more details.</p>
     </body>
