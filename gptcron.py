@@ -12,7 +12,9 @@ import smtplib
 import subprocess
 import sys
 import time
-from datetime import datetime
+import json
+from collections import Counter
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 
 import openai
@@ -898,20 +900,86 @@ def list_jobs(sort_by=None):
         print("No jobs found.")
         return
 
+    # Modify date_added fields for display and timeline creation
+    for job in jobs:
+        if job['date_added'] == '00000000000000':
+            job['display_date'] = datetime(2024, 6, 1)
+        else:
+            job['display_date'] = datetime.strptime(job['date_added'], '%Y%m%d%H%M%S')
+
     if sort_by == "date":
-        jobs.sort(key=lambda x: x["date_added"])
+        jobs.sort(key=lambda x: x["display_date"])
     elif sort_by == "url":
         jobs.sort(key=lambda x: x["url"].split('//')[-1])
     elif sort_by == "name":
         jobs.sort(key=lambda x: x["name"].lower())
 
-    max_lengths = [max(len(str(job[key])) for job in jobs) for key in ["frequency", "name", "url", "date_added"]]
+    max_lengths = [max(len(str(job[key])) for job in jobs) for key in ["frequency", "name", "url"]]
+    max_lengths.append(max(len(job['display_date'].strftime('%Y-%m-%d %H:%M:%S')) for job in jobs))
 
     print("Current monitoring jobs:")
     print(f"{'Frequency'.ljust(max_lengths[0])}  {'Name'.ljust(max_lengths[1])}  {'URL'.ljust(max_lengths[2])}  {'Date Added'.ljust(max_lengths[3])}")
     print("=" * (sum(max_lengths) + 6))
     for job in jobs:
-        print(f"{job['frequency'].ljust(max_lengths[0])}  {job['name'].ljust(max_lengths[1])}  {job['url'].ljust(max_lengths[2])}  {job['date_added'].ljust(max_lengths[3])}")
+        date_added = job['display_date'].strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{job['frequency'].ljust(max_lengths[0])}  {job['name'].ljust(max_lengths[1])}  {job['url'].ljust(max_lengths[2])}  {date_added}")
+
+    # Summary statistics
+    total_pages = len(jobs)
+    interval_counts = Counter(job['frequency'] for job in jobs)
+
+    print("\nSummary:")
+    print(f"Total pages monitored: {total_pages}")
+    print("Pages per update interval:")
+    for interval, count in interval_counts.items():
+        print(f"  {interval}: {count}")
+
+    # Visual ASCII graph of add times grouped by week
+    print("\nJob addition timeline (grouped by week):")
+    timeline = create_weekly_timeline(jobs)
+    print(timeline)
+
+def create_weekly_timeline(jobs):
+    earliest = min(job['display_date'] for job in jobs)
+    latest = max(job['display_date'] for job in jobs)
+
+    # Adjust earliest to the start of its week (Monday)
+    earliest -= timedelta(days=earliest.weekday())
+
+    # Calculate the number of weeks
+    weeks = (latest - earliest).days // 7 + 1
+
+    timeline = [' ' * 50 for _ in range(10)]
+    weekly_counts = Counter()
+
+    for job in jobs:
+        week_number = (job['display_date'] - earliest).days // 7
+        weekly_counts[week_number] += 1
+
+    max_count = max(weekly_counts.values()) if weekly_counts else 1
+    for week, count in weekly_counts.items():
+        height = int((count / max_count) * 9)
+        for i in range(height):
+            pos = int((week / weeks) * 49)
+            timeline[9-i] = timeline[9-i][:pos] + '|' + timeline[9-i][pos+1:]
+
+    timeline.insert(0, earliest.strftime('%Y-%m-%d') + ' ' * 40 + latest.strftime('%Y-%m-%d'))
+    timeline.append('-' * 50)
+
+    # Add the new row indicating weeks in the past
+    weeks_ago = [' ' * 50]
+    for i in range(weeks):
+        pos = int((i / weeks) * 49)
+        weeks_back = weeks - i - 1
+        if i == weeks - 1:
+            label = "today"
+        else:
+            label = f"-{weeks_back}"
+        weeks_ago[0] = weeks_ago[0][:pos] + label.ljust(4) + weeks_ago[0][pos+4:]
+
+    timeline.append(weeks_ago[0])
+
+    return '\n'.join(timeline)
 
 def save_sorted_jobs(sort_by):
     jobs = parse_cron_file()

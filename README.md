@@ -1,3 +1,12 @@
+wow huh i can add autocomplete for actions like bump, unbump. that would be wild.
+
+todo:
+
+* this diff system really sucks. it's not recognizing the actual changed content.
+* how about just asking gpt to do it? ffs.
+
+https://claude.ai/chat/b3f9c199-3ce1-426c-b74e-bf4cd12b7920
+
 ![image](https://github.com/user-attachments/assets/7678339f-742d-4ca5-bd92-cefb25943b89)
 
 ******SETUP******
