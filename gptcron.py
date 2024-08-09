@@ -25,16 +25,38 @@ script_path = os.path.abspath(__file__)
 script_dir = os.path.dirname(script_path)
 print('changing to:', script_dir)
 os.chdir(script_dir)
-if not os.path.exists("apikey.txt"):
-    print("no file apikey.txt found in this directory. You need this.")
-
-if not os.path.exists("config.json"):
-    print("no file config.json found in this directory. Edit config_example.json to include your real values, then rename it to that name and try again.")
+API_KEY_FILE = 'apikey.txt'
+CONFIG_FILE = 'config.json'
+MIN_SCORE = 7
 
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
-CONFIG_FILE = 'config.json'
-LOG_FILE = 'gpt_diff.log'
-API_KEY_FILE = 'apikey.txt'
+MODEL="gpt-4o-mini"
+
+LOG_FILE = 'log.log'
+if not os.path.exists(API_KEY_FILE):
+    print("no file %s found in this directory. You need this."%API_KEY_FILE)
+
+if not os.path.exists(CONFIG_FILE ):
+    print("no file %s found in this directory. Edit config_example.json to include your real values, then rename it to that name and try again."%CONFIG_FILE)
+
+
+"""I intended it to work like this on a series of updates:
+
+original page
+
+update 1 significant- score 7 crosses threshold so emailing was done
+
+update 2 very minor score 2
+
+update 3 score 1
+
+update 4 score 5 - semi-interesting, but not enough on its own
+
+update 5 score 6 - small change but combined with the previous, becoming significant
+
+update 6: since each update is compared with the last one which was EMAILED not the last one which was done (i.e. update 6 is compared to update 1's version) we get the cumulative changes. This gets a score of 8 and will be emailed.
+
+I want to make sure this is really working. At update 6, it should list out the original version, AND all intermediate versions, finally concluding that in aggregate the change is enough. So the email containing the whole list of changes over time should contain more than just two entries. Is that working? any ways to improve it?"""
 
 outer_prompt="""
 You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones.  You will be given multiple types of information about a change in a page over time.  You will then produce multiple items: a brief summary (one sentence summary), a score from 0-10, and a summary which contains a longer-form, HTML-enabled meaningful summary of the specifics of the change. Your two main goals are to be specific about what exactly changed. Only if you can do that, and only if you are sure, may you then also speculate on what this change represents or means.  Use HTML formatting to include details about what changed, including embedded images when applicable.
@@ -98,10 +120,11 @@ Example 2: Image Change
 Remember, you may ONLY return JSON in the format. If you have comments or additional things you'd like to add, make sure they're within the JSON summary or brief summary sections! I have to parse your json upon return so you better not put anything that's not valid JSON!  And you must include all 3 parts: summary, brief summary, and score.
 
 Guide to scoring:
-1. something like increasing subscribers by 10% is worth only a score of 2-3.
-2. if an academic site adds new major articles, that's a 5 or 6. It is significant, but not major.
-3. If a site announces it's shutting down, has been attacked, or something else dramatic, that is more like and 8 or higher.
+1. something like increasing subscribers by 10% is worth only a score of 2-3.  Simple numerical increases in comments are NOT significant.
+2. if an academic site adds new major articles, that's a 5 or 6. It is significant, but not major especially if the article is just commonplace. If it's groundbreaking or spectacularly meaningful or interesting, but in a limited domain, that can be a 7.
+3. If a site announces it's shutting down, has been attacked, or something else dramatic, that is more like and 8 or higher since it's existential.
 4. if a predictions site has a large relative change about an event, that can be 5 or more. if the event is also very important, such as a war, violence, etc that can even be 8 or 9.  Think about global significance and what percent of the world would care. If it would be vital for everyone to know about something, that's a 10.
+5. Overall, your goal is to ONLY give high scores to diffs which are really important in the grand scheme of things.
 
 Here is the diff and context you need to summarize:
 """
@@ -339,7 +362,7 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
 
     client = OpenAI(api_key=load_apikey())
 
-    response = client.chat.completions.create(model="gpt-4o",
+    response = client.chat.completions.create(model=MODEL,
     messages=[
         {"role": "system", "content": "You are a helpful assistant which always returns json."},
         {"role": "user", "content": prompt}
@@ -547,7 +570,7 @@ def summarize_page(context_text, url, name, job):
         {context_text}
     """
     client = OpenAI(api_key=load_apikey())
-    response = client.chat.completions.create(model="gpt-4o",
+    response = client.chat.completions.create(model=MODEL,
     messages=[
         {"role": "system", "content": "You are a helpful assistant which always returns json."},
         {"role": "user", "content": prompt}
@@ -692,7 +715,7 @@ def gpt_generate_job_names(url, text, exclusions):
     """
 
     client = OpenAI(api_key=load_apikey())
-    response = client.chat.completions.create(model="gpt-4o",
+    response = client.chat.completions.create(model=MODEL,
         messages=[
             {"role": "system", "content": "You are a helpful assistant which always returns json."},
                 {"role": "user", "content": prompt}
@@ -739,8 +762,8 @@ def get_gpt_name(url, exclusions = None):
                     return get_gpt_name(url, suggested_name)
             return suggested_name
     except Exception as e:
-        import ipdb;ipdb.set_trace()
-        raise ValueError(f"Failed to generate a valid job name for {url}: {str(e)}")
+
+        raise ValueError(f"Failed to generate a valid job name for {url}: {str(e)} {traceback.format_exc()}")
 
 
 def run_job(name):
@@ -781,7 +804,7 @@ def run_job(name):
                     break
                 checked_versions.append(version)
 
-            if score >= 5:
+            if score >= MIN_SCORE:
                 subject, body = create_email_content(
                     job["name"], url, brief_summary, summary, diff_text, score,
                     latest_file, compared_files
@@ -1036,7 +1059,7 @@ def check_cron(force = False):
                                 log_message(f"No changes detected for job: {name}")
                         else:
                             fut=next_run_time - now
-                            log_message(f"Not running job: {name} because its next run time is {fut:.0f}s in the future.")
+                            #log_message(f"Not running job: {name} because its next run time is {fut:.0f}s in the future.")
                     else:
                         print('bad job entry:', line)
 
@@ -1158,6 +1181,9 @@ if __name__ == "__main__":
             if args.command == "add":
                 name = args.name if args.name else ""
                 frequency = args.frequency
+                if name in VALID_FREQUENCIES:
+                    frequency=name
+                    name=""
                 add_job(name, args.url, frequency)
             elif args.command == "run":
                 run_job(args.name)
