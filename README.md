@@ -1,91 +1,371 @@
-wow huh i can add autocomplete for actions like bump, unbump. that would be wild.
+# GPT-WebDiff: Intelligent Web Change Monitoring
 
-todo:
+**Never miss important changes on the websites you care about.**
 
-* this diff system really sucks. it's not recognizing the actual changed content.
-* how about just asking gpt to do it? ffs.
+GPT-WebDiff is an AI-powered web monitoring tool that watches websites for you and sends intelligent email summaries when significant changes occur. Unlike traditional change detection tools that just show raw diffs, GPT-WebDiff uses advanced AI (Claude 4.5 or GPT-4o) to understand what changed and why it matters.
 
-https://claude.ai/chat/b3f9c199-3ce1-426c-b74e-bf4cd12b7920
+---
 
-![image](https://github.com/user-attachments/assets/7678339f-742d-4ca5-bd92-cefb25943b89)
+## 🌟 Key Features
 
-******SETUP******
+### Smart Change Detection
+- **AI-Powered Analysis**: Claude 4.5 reads changes and explains what they mean in plain English
+- **Intelligent Scoring**: Changes are scored 0-10 based on significance, so you only get notified about what matters
+- **Context-Aware**: The AI understands the context of each website (news site vs coffee shop vs company page)
 
-* `git clone https://github.com/ernop/gpt-webdiff.git`
-* `cd gpt-webdiff`
-* You need at least python3.7
-* put your openai key into `apikey.txt`
-* configure `config_example.json` by putting in your email address, putting in your special gmail password
-* rename this file to `config.json` so that the program will find it. obviously, this file is super secret so don't share it.
-* You have to get your gmail special password from somewhere in gmail's system - you can't use your regular one.
-* set up an environment and make it so the program can run - either in your system python or else by making a virtual environment and then installing the required stuff by using
-* `python3 -m venv gpt-diff-env`
-* `source gpt-diff-env/bin/activate`
-* `pip install -r requirements.txt`
-* `python3 gptcron.py help`
-* `python3 gptcron.py list`
-* `python3 gptcron.py add http://en.wikipedia.org`
-* the above should add the job after making up a suitable name for it.
-* gradually add pages with python3, and you should start getting emails.
-* now you need to set it to run automatically, using crontab.
-* try `crontab -e` and add this line BUT YOU HAVE TO MODIFY THE PATHS
-* `*/1 * * * * /usr/bin/env python3 /mnt/d/proj/gpt-webdiff/gpt-webdiff/gptcron.py check_cron >> /mnt/d/proj/gpt-webdiff/cronlog.log 2>&1`
+### Flexible Monitoring
+- Monitor websites at your preferred frequency: **minutely, hourly, daily, weekly, or monthly**
+- Automatic job naming using AI (or specify your own names)
+- Track unlimited websites simultaneously
 
-TODO
-* added emailing myself periodically, this is good.
-* adding having gpt4o make up possible names so you just do python3 gptcron.py add URL and it reads the url for the first time and does everything right away.
-* question: it's weird I send the raw html to the diff evaluator rather than comparing the text parts extracted with BS. Is that really the right thing? I do want to catch data changes which take place in js files, but still.
-* later version: actually I also really want to have a headless browser which grabs all this stuff as images and then uses that to do the diff. i.e. fully render the page all the way then compare that.
+### Beautiful Email Reports
+- HTML-formatted email summaries with change highlights
+- Detailed analysis of what changed, what was added, and what was removed
+- Comparison information showing date ranges
+- Visual diff highlighting
 
-* search among existing jobs list.
-* when sending an email covering say A=>B (only reached score 3) and then B=>C (over threshold) we could break down the historical changes along the range. We must show the full A=C diff evaluation, too, ofc.
+### Wikipedia vs Grokipedia Comparison (NEW!)
+- Compare any topic between Wikipedia and Grokipedia
+- Identify biases, missing information, and differences in emphasis
+- Get detailed AI analysis in one query
+- Perfect for research, fact-checking, and bias detection
 
-This now works if installed via cron. See the *_example files in this dir.
+---
 
-I want to make a command line program for "gpt-diff". It should be like "gpt-diff add <name> <URL> [daily|hourly|weekly] etc.". That would do the following:
+## 🚀 Quick Start
 
-1. set up a periodic repeated action to call a wget on that URL and save the results to a file. Then it would compare the current results to the last results, if any, using gpt-4o. So that if the first time, the page said one thing, the 2nd time, the page would say another thing.
+### Installation
 
-If there was a change, that change would trigger an email to me, at my email address. The email would
+```bash
+# Clone the repository
+git clone https://github.com/ernop/gpt-webdiff.git
+cd gpt-webdiff
 
-The program doing the downloading should:
-1. be run periodically by a real cron job (which would check all teh gpt-cron jobs I had).
-2. download the latest
-3. compare to the prior, if any, using a local diff tool
-4. if there is any technical bit difference, send the data to gpt4o for summarizing. it should say a general, detailed description.
-5. I have an apikey for this so that is fine.
-6. once results are back email them to me - both the summarized words of difference, and also the actual diff file produce from the filesystem
+# Install dependencies
+pip install -r requirements.txt
 
-I will run this on WSL in windows. The apikey is in a file called apikey.txt
+# Configure your API keys and email
+cp config_example.json config.json
+# Edit config.json with your details
+```
 
-This system also has cron.
+### Configuration
 
-So we should also create a general cron that runs say hourly which does all the jobs. Our gptcron jobs will be stored in our own .gptcron file. There will also be a config file which contains my email address.  So when the program runs, it does the work for ech one.
+Edit `config.json`:
+```json
+{
+    "login_email": "your@email.com",
+    "from_email": "your@email.com",
+    "to_email": "your@email.com",
+    "password": "your-gmail-app-password",
+    "anthropic_api_key": "sk-ant-your-key-here",
+    "openai_api_key": "sk-your-openai-key-here",
+    "default_model": "claude-sonnet-4.5",
+    "fallback_model": "gpt-4o"
+}
+```
 
-The <name> field must be an alphanumeric label for this job. the data for that job goes in the folder data/<name>. In there, there are lots of files which are named <name-date of last download of the file contents>.  Those are available if needed for deeper comparisons.
+**API Keys:**
+- **Anthropic (Claude)**: Get yours at https://console.anthropic.com/
+- **OpenAI**: Get yours at https://platform.openai.com/
 
+**Email Password**: For Gmail, you need an [App Password](https://support.google.com/accounts/answer/185833), not your regular password.
 
-Can you give me a general set of intro files for this? It should be written in python
+---
 
-The API at openAI we use must be "gpt-4o" (or later models) even if you haven't head of it yet.
+## 📖 Usage
 
-The provided script is a web monitoring tool that tracks changes to specific URLs and sends detailed email summaries of detected changes. It works by periodically downloading the web pages, comparing them with previously downloaded versions, and using OpenAI to generate summaries of the differences. It includes functionalities to add, run, list, and check monitoring jobs, each configured with specific frequencies (hourly, daily, weekly).
+### Monitor a Website
 
-We will never use Function Docstrings because they are a waste of space.
+```bash
+# Add a website to monitor (AI will create a name automatically)
+python gptcron.py add "https://example.com" daily
 
+# Or specify your own name
+python gptcron.py add "https://example.com" "my-site" daily
 
-#Our goal for ignoring small changes, yet also making sure we get aggretage email coverage of all historical change, too:  Now let's talk about this issue: imagine that we do the diff, but in the end, decide not to send the email because the change threshold was not reached. In that case, we both want to 1) NOT send the email, which is good, but 2) the next time we check we want to check the FULL interval. I.e. if the times we check are T1, T2, T3 and the first interval (T1 to T2) doesn't have enough change to send an email, the next time we check (T3) we should REMEMBER that we didn't send an email, and do the full check on the diff (i.e. between T1 to T3). That way, when we reach a large enough amount of change, we'll send an email, AND the total coverage we have of sites we monitor is going to be constant. Sites can't just slowly modify little by little, and end up having the changes be lost, since none of them met the threshold.  What are general options to implement this method? List 3 main ideas we might try to make this change. Once you list the summary, we will continue our discussion and figure out which one to do. Now, I'm just looking for your proposals for the easiest, safest, and best ways to do this, in general.
+# Available frequencies: minutely, hourly, daily, weekly, monthly
+```
 
+### List Your Monitoring Jobs
 
-okay, it sends emails, but there are problems.  See image:
+```bash
+python gptcron.py list
 
-1. the subject is too long. I want the score, the name of the page and sender, and a new VERY BRIEF summary of the changes.
-2. The body of the email doesn't contain any details now? I want all the details, and I want them to be very easy to read. So the top part should explain the full diff, including what was added, what was changed (including before/after), and what was removed.
-3. The next section of the email should contain as best as you can a copy of the full text diff, and since it contains html, we have to protect it somehow so I can see the raw diff of the file within gmail.
+# Sort by date, url, or name
+python gptcron.py list --sort_by date
+```
 
+### Test a Job Immediately
 
-******FUTURE******
+```bash
+# Run a specific job right now
+python gptcron.py test my-site
 
-1. you should be able to build in context so that the results per area will be customizable to youpersonally
-2. it would be cool to be able to reply to the emails with guidance like "you gave this result too high of a score, here's why" and that might influence something about how that query would run next time.
-3. it would be awesome to be able to make images (ideogram.ai api anyone?) based on the diffs so that when they arrive you'd have something to lookat.  this only gets better obviously.
+# Or test a random job
+python gptcron.py test
+```
+
+### Compare Wikipedia vs Grokipedia
+
+```bash
+# Compare any topic
+python gptcron.py compare_wikis "Artificial Intelligence"
+
+# Send results via email
+python gptcron.py compare_wikis "Climate Change" --send-email
+```
+
+This feature fetches the full text of both encyclopedia pages and uses AI to provide detailed analysis of:
+- Key differences in content
+- Missing information in either source
+- Differences in emphasis or perspective
+- Potential biases
+
+Perfect for research, journalism, or understanding how different sources present information.
+
+### Automated Monitoring
+
+Set up a cron job to check all your sites automatically:
+
+```bash
+# Edit your crontab
+crontab -e
+
+# Add this line (adjust paths to match your system):
+*/15 * * * * cd /path/to/gpt-webdiff && python3 gptcron.py check_cron >> cronlog.log 2>&1
+```
+
+This checks every 15 minutes and runs any jobs that are due.
+
+---
+
+## 🎯 Use Cases
+
+### News & Current Events
+- Monitor breaking news sites
+- Track updates to ongoing stories
+- Get alerts when important articles change
+
+### Business Intelligence
+- Watch competitor websites for changes
+- Monitor product pages for pricing updates
+- Track company announcements
+
+### Research & Academia
+- Monitor research paper repositories
+- Track changes to Wikipedia articles
+- Watch for updates to academic resources
+- Compare information sources for bias
+
+### Personal Projects
+- Monitor your own websites for unexpected changes
+- Track changes to documentation
+- Watch for updates to hobby sites
+
+### Fact-Checking & Media Analysis
+- Compare how different sources present information
+- Identify potential bias in encyclopedias
+- Track how articles evolve over time
+
+---
+
+## 💡 How It Works
+
+1. **Download**: GPT-WebDiff downloads the webpage at your specified frequency
+2. **Compare**: It compares the new version with the previous version
+3. **Analyze**: Claude 4.5 (or GPT-4o) reads the differences and creates a summary
+4. **Score**: The AI assigns a significance score (0-10)
+5. **Notify**: If the score is ≥7, you get an email with a detailed summary
+
+### Example Email
+
+```
+Subject: gpt-diff | nytimes | Score: 9 | Major political announcement
+
+=== Summary ===
+The New York Times homepage has been updated with breaking news...
+[Detailed, intelligent summary of what changed]
+
+=== Changes ===
+Added: New article about...
+Removed: Old article about...
+Modified: Updated headline from X to Y...
+
+=== Full Diff ===
+[Technical diff for reference]
+```
+
+---
+
+## 🤖 AI Models
+
+GPT-WebDiff supports both Claude (Anthropic) and OpenAI models:
+
+### Default: Claude Sonnet 4.5
+- More reliable and accurate
+- Better at understanding context
+- Produces higher quality summaries
+- Recommended for best results
+
+### Fallback: GPT-4o
+- Automatically used if Claude fails
+- Also produces excellent results
+- Good for compatibility
+
+### Configurable
+You can change the default model in `config.json`:
+```json
+{
+    "default_model": "claude-sonnet-4.5",
+    "fallback_model": "gpt-4o"
+}
+```
+
+Supported models:
+- `claude-sonnet-4.5` (recommended)
+- `claude-opus-4`
+- `gpt-4o`
+- `gpt-4-turbo`
+- `gpt-4`
+
+---
+
+## 📊 Commands Reference
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `add` | Add a new monitoring job | `python gptcron.py add https://example.com daily` |
+| `list` | List all jobs | `python gptcron.py list` |
+| `remove` | Remove a job | `python gptcron.py remove job-name` |
+| `run` | Run a job immediately | `python gptcron.py run job-name` |
+| `test` | Test a job (forces comparison) | `python gptcron.py test job-name` |
+| `check_cron` | Check and run all due jobs | `python gptcron.py check_cron` |
+| `bump` | Increase job frequency | `python gptcron.py bump job-name` |
+| `unbump` | Decrease job frequency | `python gptcron.py unbump job-name` |
+| `search` | Search jobs by name/URL | `python gptcron.py search keyword` |
+| `compare_wikis` | Compare Wikipedia vs Grokipedia | `python gptcron.py compare_wikis "Topic"` |
+| `email-backup` | Email backup of job list | `python gptcron.py email-backup` |
+
+---
+
+## 💰 Cost
+
+### Monitoring Costs
+- **Per check**: ~$0.001-0.005 (only when changes detected)
+- **Typical usage** (10 daily jobs): ~$0.30-0.50/month
+- Claude Sonnet 4.5 is very cost-effective
+
+### Wiki Comparison Costs
+- **Per comparison**: ~$0.01-0.02
+- Sends full page content (up to 50K characters) to AI
+
+Both Claude and OpenAI offer generous free tiers for trying out the service.
+
+---
+
+## 🔒 Security & Privacy
+
+- Your API keys are stored locally in `config.json` (never shared)
+- All data processing happens on your machine
+- AI providers (Anthropic/OpenAI) process the content but don't store it
+- Downloaded pages are stored locally in the `data/` folder
+- Email uses secure SMTP with TLS
+
+**Important**: Never commit `config.json` or `apikey.txt` to version control!
+
+---
+
+## 🛠️ Advanced Features
+
+### Historical Tracking
+- All versions of monitored pages are saved
+- Compare any two versions
+- Track changes over time
+
+### Threshold-Based Notifications
+- Only get notified when changes are significant
+- Configurable minimum score (default: 7)
+- Prevents notification fatigue
+
+### Smart Aggregation
+- If multiple small changes don't meet the threshold, they're accumulated
+- Next check compares against the last emailed version
+- Ensures complete coverage even with many small changes
+
+### Backup System
+- Automatic backups of your job list
+- Email yourself a backup anytime
+- Easy recovery if something goes wrong
+
+---
+
+## 📚 Documentation
+
+- **[SETUP.md](SETUP.md)** - Detailed setup instructions
+- **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this project
+- **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Detailed usage examples
+- **[IMPROVEMENTS.md](IMPROVEMENTS.md)** - Technical improvement notes
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! This project can be improved in many ways:
+
+- Better diff algorithms
+- Support for more AI models
+- Web interface
+- Mobile app
+- More comparison sources
+- Visual diff rendering
+- And more!
+
+See [AGENTS.md](AGENTS.md) for guidelines on contributing.
+
+---
+
+## 📝 License
+
+This project is open source. Feel free to use, modify, and distribute.
+
+---
+
+## 🆘 Support & Issues
+
+- **Issues**: Open an issue on GitHub
+- **Questions**: Check the documentation files
+- **Feature Requests**: Open an issue with the "enhancement" label
+
+---
+
+## 🎉 Why GPT-WebDiff?
+
+**Traditional change monitors** just tell you "something changed" and show you a messy diff.
+
+**GPT-WebDiff** tells you:
+- **What** changed in plain English
+- **Why** it matters (scored 0-10)
+- **Context** about the change
+- **Details** in an easy-to-read format
+
+It's like having a personal assistant watching the web for you, who only interrupts when something actually matters.
+
+---
+
+## 🚀 Get Started Now
+
+```bash
+git clone https://github.com/ernop/gpt-webdiff.git
+cd gpt-webdiff
+pip install -r requirements.txt
+cp config_example.json config.json
+# Edit config.json with your API keys
+python gptcron.py add "https://news.ycombinator.com" hourly
+```
+
+That's it! You'll get intelligent email alerts whenever Hacker News has significant changes.
+
+---
+
+**Built with ❤️ using Claude 4.5 and GPT-4o**

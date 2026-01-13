@@ -12,7 +12,7 @@ import smtplib
 import subprocess
 import sys
 import time
-import json
+import requests
 from collections import Counter
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
@@ -20,6 +20,12 @@ from email.mime.text import MIMEText
 import openai
 from bs4 import BeautifulSoup, Comment
 from openai import OpenAI
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    print("Warning: anthropic package not installed. Claude models will not be available.")
 
 script_path = os.path.abspath(__file__)
 script_dir = os.path.dirname(script_path)
@@ -30,7 +36,11 @@ CONFIG_FILE = 'config.json'
 MIN_SCORE = 7
 
 VALID_FREQUENCIES = ['minutely', 'hourly', 'daily', 'weekly', 'monthly']
-MODEL="gpt-4o-mini"
+
+# Model configuration - defaults can be overridden in config.json
+DEFAULT_MODEL = "claude-sonnet-4.5"
+FALLBACK_MODEL = "gpt-4o"
+MODEL = DEFAULT_MODEL  # Legacy variable for backward compatibility
 
 LOG_FILE = 'log.log'
 if not os.path.exists(API_KEY_FILE):
@@ -40,93 +50,42 @@ if not os.path.exists(CONFIG_FILE ):
     print("no file %s found in this directory. Edit config_example.json to include your real values, then rename it to that name and try again."%CONFIG_FILE)
 
 
-"""I intended it to work like this on a series of updates:
-
-original page
-
-update 1 significant- score 7 crosses threshold so emailing was done
-
-update 2 very minor score 2
-
-update 3 score 1
-
-update 4 score 5 - semi-interesting, but not enough on its own
-
-update 5 score 6 - small change but combined with the previous, becoming significant
-
-update 6: since each update is compared with the last one which was EMAILED not the last one which was done (i.e. update 6 is compared to update 1's version) we get the cumulative changes. This gets a score of 8 and will be emailed.
-
-I want to make sure this is really working. At update 6, it should list out the original version, AND all intermediate versions, finally concluding that in aggregate the change is enough. So the email containing the whole list of changes over time should contain more than just two entries. Is that working? any ways to improve it?"""
-
 outer_prompt="""
-You are an assistant who summarizes changes detected in web pages. Your goal is to focus on human-meaningful changes rather than CSS or JavaScript ones.  You will be given multiple types of information about a change in a page over time.  You will then produce multiple items: a brief summary (one sentence summary), a score from 0-10, and a summary which contains a longer-form, HTML-enabled meaningful summary of the specifics of the change. Your two main goals are to be specific about what exactly changed. Only if you can do that, and only if you are sure, may you then also speculate on what this change represents or means.  Use HTML formatting to include details about what changed, including embedded images when applicable.
+You will rate how significant a change is on a scale of 0-10.
 
-Group the changes conceptually using <h1> through <h3> tags for titles and headers. You should use embedded images in HTML format and give details about what changed; for example, you can say 'the old image <image link> was replaced with the new image <new image link>'. Please do this so that the actual image will render from within an html email, which is the output destination of the HTML you are generating.
+You rate each change in the context of the focus of the page.
 
-BIG PICTURE: The overall goal is to help the reader of the email understand the specifics AND the overall big picture and the sense and strategy behind the change.
+If the page is about US National news, then rate things within the scale of how important they are to the US nation.
+10 would be things like an invasion, assassination etc
+5 would be things like a new law, 
+2 would be things like a small incident, bad weather, funny story, etc.
 
-Do not say generic things like "some details were removed." Instead, you MUST say what the exact details ARE. Do not ever say things like "an image was added" - you must include the image. INCLUDE ALL DETAILS; don't just summarize them.
+If the page is about a specific small coffee shop, then the meaning of the scale changes. Within this domain, 
+10 means it's going out of business, new ownership
+8 would be significant new hours, moving location, etc
+5 would be daily specials changing, new types of food etc
 
-If there are specifics, give them. Note: CSS/JS-only changes are VERY low priority; they should nearly always be PRI 1 or 2. What we care about are changes which look like ones the OWNER and EDITOR of the site would have made, relating to what content they include on the web page, for sharing with people who care about it!  That is, if the site is about chess, then we are interested in chess news; in cases like that, we are not interested in background library-level js or css changes.
+IF the page is about a company,
+10 means going out of business, or major lawsuit etc
+9 might be a change of name
+8 means the departure of a senior employee, dramatic share price rise, etc
 
-Sample examples of How to Generate Summaries. In these examples, brackets are used to indicate areas of detail and summarization you should include based on the contents you are given.
+You will be given a diff of the things that have changed in the page, and some other context.
 
-Example 1: Significant New Articles Added
-
-    + [a story about molybdenum was added, relating how in Geneva on Tuesday, it was demonstated to trivially enable fusion power, in a dramatic headline claiming that it has been found to be a source of fusion power, with a full demonstration already done and approved by a panel of 19 Nobel Prize winners, etc. with many more details.]
-    - [nothing was removed]
-
-    Example Bad Output: {
-        "summary": "The change primarily updates the page to include information about a chemical element and a new scientific breakthrough.  There is a new list of articles, reflecting recent news and content updates. as well as js and html and css changes", <= this is bad because it's not specific
-        "brief summary":"Html changes", <==this is bad because it's super generic.
-        "score": 5 <= this is bad because it's too low. The discovery of fusion would be a gigantic, important event.
-        }
-
-    Good Output: {
-        "summary": "Today in Geneva, a panel of Nobel prize winners led by [name] confirmed a demonstration of fusion power is legitimiate. It was done by [group], on [date], [many details] [following this, give all other higher level speculation, etc, predictions] [ in HTML format]",
-        "brief summary": "Fusion discovered and confirmed by nobel prize winners!",
-        "score": 10 <= this is a super major event.
-       }
-
-Example 2: Text Change on a site "votingnews.com"
-
-    Diff:
-        - "We support the right of all americans to vote free of interference."
-        + "We support American voting rights as well as the need to intensify voter surveillance and anti-fraud measures. Voting is meaningless without validation."
-
-    Good response:
-    {
-        "summary": "Summary:
-    <h2>Votingnews.com seriously changes voting policy to emphasize security.</h2>
-    <p>[details on time, person, reasons, all other new information in the article/page.]</p>",
-        "brief summary":"Votingnews.com seriously changes voting policy to emphasize security.",
-        "score": 6 <= for this site, it's an important result, but in the grand scope of things, a change in a single, not-very-famous site's opinion isn't that huge, so it's only a 6.
-    }
+You will then output your evaluation of the change and its score following the following format:
 
 
-
-Example 2: Image Change
-
-    Diff:
-        - <img src="cat_image.jpg" alt="old image">
-        + <img src="dog_image.jpg" alt="new image">
 
     {
-        "summary": "[details as many as we can get in HTML format] ",
-        "brief summary":"The page switches images from a cat to a dog.",
-        "score": 4
+        "brief summary":"summarize the change in a few words",
+        "summary": "detailed summary of the changes",
+        "score": 6 
     }
 
-Remember, you may ONLY return JSON in the format. If you have comments or additional things you'd like to add, make sure they're within the JSON summary or brief summary sections! I have to parse your json upon return so you better not put anything that's not valid JSON!  And you must include all 3 parts: summary, brief summary, and score.
+Rules:
+* you must be specific
+* the summary section must use HTML output and bullet points, headers. Deliver very compact information, dense, full of details.
 
-Guide to scoring:
-1. something like increasing subscribers by 10% is worth only a score of 2-3.  Simple numerical increases in comments are NOT significant.
-2. if an academic site adds new major articles, that's a 5 or 6. It is significant, but not major especially if the article is just commonplace. If it's groundbreaking or spectacularly meaningful or interesting, but in a limited domain, that can be a 7.
-3. If a site announces it's shutting down, has been attacked, or something else dramatic, that is more like and 8 or higher since it's existential.
-4. if a predictions site has a large relative change about an event, that can be 5 or more. if the event is also very important, such as a war, violence, etc that can even be 8 or 9.  Think about global significance and what percent of the world would care. If it would be vital for everyone to know about something, that's a 10.
-5. Overall, your goal is to ONLY give high scores to diffs which are really important in the grand scheme of things.
-
-Here is the diff and context you need to summarize:
 """
 
 email_body_template="""<html>
@@ -235,6 +194,133 @@ summary_email_body_template="""<html>
 </html>
 """
 
+
+
+def load_config():
+    with open(CONFIG_FILE, 'r') as f:
+        return json.load(f)
+
+def load_apikey():
+    with open(API_KEY_FILE, 'r') as f:
+        return f.read().strip()
+
+def get_model_config():
+    config = load_config()
+    default_model = config.get('default_model', DEFAULT_MODEL)
+    fallback_model = config.get('fallback_model', FALLBACK_MODEL)
+    openai_key = config.get('openai_api_key') or load_apikey()
+    anthropic_key = config.get('anthropic_api_key')
+    return {
+        'default_model': default_model,
+        'fallback_model': fallback_model,
+        'openai_api_key': openai_key,
+        'anthropic_api_key': anthropic_key
+    }
+
+def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=4096, response_format=None, model=None):
+    """
+    Unified interface for calling LLM APIs (Claude or OpenAI).
+    Tries default model first, falls back to alternative if needed.
+    """
+    config = get_model_config()
+    
+    if model is None:
+        model = config['default_model']
+    
+    # Determine which API to use based on model name
+    is_claude = 'claude' in model.lower()
+    is_openai = 'gpt' in model.lower() or 'o1' in model.lower()
+    
+    def try_call(model_name, is_claude_model):
+        if is_claude_model:
+            if not ANTHROPIC_AVAILABLE:
+                raise Exception("Anthropic package not installed. Run: pip install anthropic")
+            if not config['anthropic_api_key']:
+                raise Exception("Anthropic API key not found in config.json")
+            
+            client = anthropic.Anthropic(api_key=config['anthropic_api_key'])
+            
+            # Claude doesn't support response_format parameter directly
+            if response_format and response_format.get('type') == 'json_object':
+                prompt_with_json = f"{prompt}\n\nIMPORTANT: Respond ONLY with valid JSON. No other text."
+            else:
+                prompt_with_json = prompt
+            
+            response = client.messages.create(
+                model=model_name,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt_with_json}]
+            )
+            return response.content[0].text
+        else:
+            # OpenAI
+            if not config['openai_api_key']:
+                raise Exception("OpenAI API key not found in config.json or apikey.txt")
+            
+            client = OpenAI(api_key=config['openai_api_key'])
+            
+            kwargs = {
+                'model': model_name,
+                'messages': [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                'max_tokens': max_tokens
+            }
+            
+            if response_format:
+                kwargs['response_format'] = response_format
+            
+            response = client.chat.completions.create(**kwargs)
+            return response.choices[0].message.content.strip()
+    
+    # Try primary model
+    try:
+        return try_call(model, is_claude)
+    except Exception as e:
+        log_message(f"Primary model {model} failed: {str(e)}")
+        
+        # Try fallback model
+        fallback = config['fallback_model']
+        if fallback and fallback != model:
+            try:
+                log_message(f"Trying fallback model: {fallback}")
+                is_fallback_claude = 'claude' in fallback.lower()
+                return try_call(fallback, is_fallback_claude)
+            except Exception as e2:
+                log_message(f"Fallback model {fallback} also failed: {str(e2)}")
+                raise Exception(f"Both primary ({model}) and fallback ({fallback}) models failed")
+        else:
+            raise
+
+def log_message(message):
+    with open(LOG_FILE, 'a') as log_file:
+        msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
+        print(msg)
+        log_file.write(msg+'\n')
+
+def load_metadata():
+    if not os.path.exists('job_metadata.json'):
+        return {}
+    with open('job_metadata.json', 'r') as f:
+        return json.load(f)
+
+def save_metadata(metadata):
+    with open('job_metadata.json', 'w') as f:
+        json.dump(metadata, f)
+
+#email a copy of the .gptcron file to the user in settings.
+def email_me_gptcron():
+    now=datetime.now()
+    subject=f"Backup of .gptcron, as of {now.year}/{now.month}/{now.day}"
+    with open('.gptcron', 'r') as f:
+        lines = f.readlines()
+    body='<br>\n'.join(lines)
+    to_email= load_config()['to_email']
+    inner_send_email(subject, body,to_email)
+
+
 def setup_argparse():
     parser = argparse.ArgumentParser(description='gpt-diff: Monitor web pages for changes and get detailed email summaries of those changes.')
     subparsers = parser.add_subparsers(dest='command', help='Sub-command help')
@@ -282,6 +368,10 @@ def setup_argparse():
     test_parser = subparsers.add_parser('test', help='Test a job by forcing a comparison. Usage: test [job_name]')
     test_parser.add_argument('name', type=str, nargs='?', help='Name of the job to test (optional)')
 
+    compare_wikis_parser = subparsers.add_parser('compare_wikis', help='Compare Grokipedia and Wikipedia pages for a given subject. Usage: compare_wikis <subject>')
+    compare_wikis_parser.add_argument('subject', type=str, help='Subject/topic to compare between Grokipedia and Wikipedia')
+    compare_wikis_parser.add_argument('--send-email', action='store_true', help='Send results via email instead of printing to console')
+
     return parser
 
 def test_job(name=None):
@@ -310,6 +400,265 @@ def test_job(name=None):
 
     print("Test completed.")
 
+def fetch_page_content(url):
+    try:
+        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        headers = {'User-Agent': user_agent}
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.text
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching {url}: {e}")
+        return None
+
+def compare_wikis(subject, send_email=False):
+    log_message(f"Starting wiki comparison for subject: {subject}")
+    
+    # Format subject for URLs (replace spaces with underscores)
+    url_subject = subject.replace(' ', '_')
+    
+    # Construct URLs - try multiple possible Grokipedia URL patterns
+    wikipedia_url = f"https://en.wikipedia.org/wiki/{url_subject}"
+    
+    # Grokipedia URL patterns to try (most to least likely)
+    grokipedia_urls = [
+        f"https://grokipedia.org/{url_subject}",
+        f"https://grok.x.ai/wiki/{url_subject}",
+        f"https://x.ai/grokipedia/{url_subject}",
+    ]
+    
+    print(f"Fetching Wikipedia page: {wikipedia_url}")
+    wikipedia_content = fetch_page_content(wikipedia_url)
+    
+    if not wikipedia_content:
+        print("Failed to fetch Wikipedia content")
+        return
+    
+    # Try multiple Grokipedia URL patterns
+    grokipedia_content = None
+    grokipedia_url = None
+    for url in grokipedia_urls:
+        print(f"Trying Grokipedia URL: {url}")
+        content = fetch_page_content(url)
+        if content:
+            grokipedia_content = content
+            grokipedia_url = url
+            print(f"Successfully fetched from: {url}")
+            break
+    
+    if not grokipedia_content:
+        print(f"Failed to fetch Grokipedia content from any known URL patterns.")
+        print(f"Tried: {', '.join(grokipedia_urls)}")
+        print("\nNote: Grokipedia was recently launched (Oct 2025). Please check the actual URL structure.")
+        print("You can manually specify the correct URL by modifying the grokipedia_urls list in the compare_wikis function.")
+        return
+    
+    # Extract text from HTML
+    wikipedia_soup = BeautifulSoup(wikipedia_content, 'html.parser')
+    grokipedia_soup = BeautifulSoup(grokipedia_content, 'html.parser')
+    
+    wikipedia_text = wikipedia_soup.get_text(separator=' ', strip=True)
+    grokipedia_text = grokipedia_soup.get_text(separator=' ', strip=True)
+    
+    print(f"\nWikipedia content length: {len(wikipedia_text)} characters")
+    print(f"Grokipedia content length: {len(grokipedia_text)} characters")
+    
+    # Prepare prompt for GPT comparison
+    prompt = f"""Please provide a detailed comparison of these two encyclopedia pages about "{subject}".
+
+WIKIPEDIA PAGE:
+================================================================================
+{wikipedia_text[:50000]}
+================================================================================
+
+GROKIPEDIA PAGE:
+================================================================================
+{grokipedia_text[:50000]}
+================================================================================
+
+Please analyze and explain:
+1. What are the key differences in content between these two pages?
+2. What information is present in one but missing in the other?
+3. What are the differences in emphasis, tone, or perspective?
+4. Are there any notable differences in how the subject is presented or framed?
+5. Which page appears more comprehensive, and in what ways?
+6. Are there any potential biases evident in either presentation?
+7. What unique insights or information does each page provide?
+
+Please provide a thorough, detailed analysis in HTML format with clear sections and bullet points.
+Return your response in this JSON format:
+{{
+    "summary": "Your detailed HTML-formatted analysis here",
+    "wikipedia_unique_points": "Key points only in Wikipedia",
+    "grokipedia_unique_points": "Key points only in Grokipedia",
+    "major_differences": "Most significant differences",
+    "bias_assessment": "Assessment of any potential biases"
+}}
+"""
+
+    print("\nSending comparison request to LLM...")
+    
+    try:
+        response_text = call_llm(
+            prompt=prompt,
+            system_prompt="You are a helpful assistant that provides detailed, objective analysis of content differences.",
+            response_format={"type": "json_object"},
+            max_tokens=4096
+        )
+        response_json, got = attempt_to_deserialize_openai_json(response_text)
+        
+        if not got:
+            print("Error: Failed to parse GPT response")
+            print(response_text)
+            return
+        
+        # Save the comparison to disk
+        os.makedirs('wiki_comparisons', exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        output_file = f"wiki_comparisons/{subject.replace(' ', '_')}_{timestamp}.html"
+        
+        # Create HTML output
+        html_output = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Wiki Comparison: {subject}</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }}
+        .header {{
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }}
+        .section {{
+            background-color: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .section h2 {{
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }}
+        .urls {{
+            background-color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }}
+        .urls a {{
+            color: #3498db;
+            text-decoration: none;
+        }}
+        .urls a:hover {{
+            text-decoration: underline;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Wikipedia vs Grokipedia Comparison</h1>
+        <h2>Subject: {subject}</h2>
+        <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    </div>
+    
+    <div class="urls">
+        <p><strong>Wikipedia:</strong> <a href="{wikipedia_url}" target="_blank">{wikipedia_url}</a></p>
+        <p><strong>Grokipedia:</strong> <a href="{grokipedia_url}" target="_blank">{grokipedia_url}</a></p>
+    </div>
+    
+    <div class="section">
+        <h2>Detailed Analysis</h2>
+        {response_json.get('summary', 'No summary available')}
+    </div>
+    
+    <div class="section">
+        <h2>Wikipedia Unique Points</h2>
+        {response_json.get('wikipedia_unique_points', 'No data available')}
+    </div>
+    
+    <div class="section">
+        <h2>Grokipedia Unique Points</h2>
+        {response_json.get('grokipedia_unique_points', 'No data available')}
+    </div>
+    
+    <div class="section">
+        <h2>Major Differences</h2>
+        {response_json.get('major_differences', 'No data available')}
+    </div>
+    
+    <div class="section">
+        <h2>Bias Assessment</h2>
+        {response_json.get('bias_assessment', 'No data available')}
+    </div>
+</body>
+</html>
+"""
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(html_output)
+        
+        print(f"\nComparison saved to: {output_file}")
+        
+        if send_email:
+            config = load_config()
+            subject_line = f"Wiki Comparison: {subject} (Wikipedia vs Grokipedia)"
+            send_email("wiki_comparison", subject_line, html_output, config['to_email'])
+            print("Comparison sent via email")
+        else:
+            print("\n" + "="*80)
+            print("COMPARISON RESULTS")
+            print("="*80)
+            print(f"\nSubject: {subject}")
+            print(f"Wikipedia URL: {wikipedia_url}")
+            print(f"Grokipedia URL: {grokipedia_url}")
+            print("\n" + "-"*80)
+            print("DETAILED ANALYSIS:")
+            print("-"*80)
+            # Strip HTML for console display
+            from html import unescape
+            clean_summary = BeautifulSoup(response_json.get('summary', ''), 'html.parser').get_text()
+            print(clean_summary)
+            print("\n" + "-"*80)
+            print("WIKIPEDIA UNIQUE POINTS:")
+            print("-"*80)
+            clean_wiki = BeautifulSoup(response_json.get('wikipedia_unique_points', ''), 'html.parser').get_text()
+            print(clean_wiki)
+            print("\n" + "-"*80)
+            print("GROKIPEDIA UNIQUE POINTS:")
+            print("-"*80)
+            clean_grok = BeautifulSoup(response_json.get('grokipedia_unique_points', ''), 'html.parser').get_text()
+            print(clean_grok)
+            print("\n" + "-"*80)
+            print("MAJOR DIFFERENCES:")
+            print("-"*80)
+            clean_diff = BeautifulSoup(response_json.get('major_differences', ''), 'html.parser').get_text()
+            print(clean_diff)
+            print("\n" + "-"*80)
+            print("BIAS ASSESSMENT:")
+            print("-"*80)
+            clean_bias = BeautifulSoup(response_json.get('bias_assessment', ''), 'html.parser').get_text()
+            print(clean_bias)
+            print("\n" + "="*80)
+        
+        log_message(f"Wiki comparison completed for: {subject}")
+        
+    except Exception as e:
+        error_msg = f"Error during comparison: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        log_message(error_msg)
+
 def check_conformity(response_json):
     # Validate the required keys and types
     required_keys = {'summary': str, 'brief summary': str, 'score': int}
@@ -334,7 +683,7 @@ def check_conformity(response_json):
 
 def summarize_diff(diff_text, all_text, html_content, url, name):
     context_text = extract_text_from_html(html_content)
-
+    
     loaded_prompt = outer_prompt
 
     prompt = f"""{loaded_prompt}
@@ -345,37 +694,20 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
 
         ============
 
-        As additional context, here is the full text of the current version of the page with the diff of changes since the previous version included.
-
-        ============
-        {all_text[:20000]}"
-        ============
-
-        Please provide your response in the following JSON format:
-        {{
-            "summary": "generate a text summary of the diff. Use newlines to separate paragraphs covering all the main aspects of changes. We are interested in the details and the overall meaning and direction of the CHANGES. Use the context as guidance.",
-            "brief summary": "a one-sentence, pure text summary of the changes. This is for use within an email subject line, so it cannot be very long.",
-            "score": your_score_here (integer from 0 to 10),
-        }}
     """
 
-
-    client = OpenAI(api_key=load_apikey())
-
-    response = client.chat.completions.create(model=MODEL,
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant which always returns json."},
-        {"role": "user", "content": prompt}
-    ],
-    max_tokens=3500)
-
-    response_text = response.choices[0].message.content.strip()
+    response_text = call_llm(
+        prompt=prompt,
+        system_prompt="You are a helpful assistant that returns JSON responses.",
+        response_format={"type": "json_object"},
+        max_tokens=3500
+    )
+    
     unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
     got = False
     response_json, got=attempt_to_deserialize_openai_json(response_text)
     okay = check_conformity(response_json)
     if not okay:
-        #~ import ipdb;ipdb.set_trace()
         sys.exit(3)
 
     if not got:
@@ -383,7 +715,7 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
         brief_summary = "Fail"
         score = 0
         raw_response_filename = f"openai_responses/{name}_{unique_id}_parsed_bad.txt"
-        with open(raw_response_filename, 'w') as f:
+        with open(raw_response_filename, 'w', encoding='utf-8') as f:
             f.write(response_text)
         print("ERROR")
         return "","",""
@@ -394,7 +726,7 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
     summary, score, brief_summary = rip(response_json)
 
 
-    with open(raw_response_filename, 'w') as f:
+    with open(raw_response_filename, 'w', encoding='utf-8') as f:
         f.write("================PROMPT:==============\r\n\r\n")
         f.write(prompt)
         f.write("\r\n\r\n================RESPONSE:==============\r\n\r\n")
@@ -418,18 +750,9 @@ def save_email_to_disk(job_name, subject, body):
     email_dir = "emails"
     os.makedirs(email_dir, exist_ok=True)
     filename = os.path.join(email_dir, f"{job_name}-{datetime.now().strftime('%Y%m%d%H%M%S')}.txt")
-    with open(filename, 'w') as f:
+    with open(filename, 'w', encoding='utf-8') as f:
         f.write(f"Subject: {subject}\n\n{body}")
 
-#email a copy of the .gptcron file to the user in settings.
-def email_me_gptcron():
-    now=datetime.now()
-    subject=f"Backup of .gptcron, as of {now.year}/{now.month}/{now.day}"
-    with open('.gptcron', 'r') as f:
-        lines = f.readlines()
-    body='<br>\n'.join(lines)
-    to_email= load_config()['to_email']
-    inner_send_email(subject, body,to_email)
 
 
 def create_email_content(job_name, url, brief_summary, summary, diff_text, score, current_file, compared_files):
@@ -511,30 +834,6 @@ def inner_send_email(subject, body, to_email):
 
 
 
-def load_config():
-    with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
-
-def load_apikey():
-    with open(API_KEY_FILE, 'r') as f:
-        return f.read().strip()
-
-def log_message(message):
-    with open(LOG_FILE, 'a') as log_file:
-        msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
-        print(msg)
-        log_file.write(msg+'\n')
-
-def load_metadata():
-    if not os.path.exists('job_metadata.json'):
-        return {}
-    with open('job_metadata.json', 'r') as f:
-        return json.load(f)
-
-def save_metadata(metadata):
-    with open('job_metadata.json', 'w') as f:
-        json.dump(metadata, f)
-
 def extract_text_from_html(html_content):
     return BeautifulSoup(html_content, 'html.parser').get_text(separator=' ', strip=True)
 
@@ -569,15 +868,13 @@ def summarize_page(context_text, url, name, job):
 
         {context_text}
     """
-    client = OpenAI(api_key=load_apikey())
-    response = client.chat.completions.create(model=MODEL,
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant which always returns json."},
-        {"role": "user", "content": prompt}
-    ],
-    max_tokens=3500)
-
-    response_text = response.choices[0].message.content.strip()
+    
+    response_text = call_llm(
+        prompt=prompt,
+        system_prompt="You are a helpful assistant which always returns JSON.",
+        response_format={"type": "json_object"},
+        max_tokens=3500
+    )
     unique_id = f"{time.strftime('%Y%m%d%H%M%S')}_{hashlib.md5(url.encode()).hexdigest()}"
 
     raw_response_filename = f"openai_responses/{name}_{unique_id}_summary.json"
@@ -680,8 +977,21 @@ def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S')}.html"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    subprocess.run(['wget', '-O', output_file, '--user-agent', user_agent, url])
-    return output_file
+    
+    try:
+        # Use requests library instead of wget for better cross-platform compatibility
+        headers = {'User-Agent': user_agent}
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(response.text)
+        
+        log_message(f"Downloaded {url} to {output_file}")
+        return output_file
+    except requests.exceptions.RequestException as e:
+        log_message(f"Error downloading {url}: {e}")
+        raise
 
 def is_valid_url(url):
     regex = re.compile(
@@ -696,7 +1006,6 @@ def is_valid_url(url):
 
 
 def gpt_generate_job_names(url, text, exclusions):
-    openai.api_key = load_apikey()
     short_text=text[:1000]
     exclusion_text=""
     if exclusions:
@@ -714,15 +1023,12 @@ def gpt_generate_job_names(url, text, exclusions):
     Please return JUST the name you suggest, simplest form possible, max 4 words or so, as a json string like this: {{result: "<your result>"}}.
     """
 
-    client = OpenAI(api_key=load_apikey())
-    response = client.chat.completions.create(model=MODEL,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant which always returns json."},
-                {"role": "user", "content": prompt}
-        ],
-        max_tokens=200)
-
-    res = response.choices[0].message.content.strip()
+    res = call_llm(
+        prompt=prompt,
+        system_prompt="You are a helpful assistant which always returns JSON.",
+        response_format={"type": "json_object"},
+        max_tokens=200
+    )
     response, got = attempt_to_deserialize_openai_json(res)
     if not got:
         return ""
@@ -791,8 +1097,11 @@ def run_job(name):
         diff_text, all_text = compare_files(last_emailed_version, latest_file)
 
         if diff_text:
-            print("DIFF TEXT:",diff_text)
-            with open(latest_file, 'r') as f:
+            try:
+                print(f"DIFF TEXT: {len(diff_text)} characters")
+            except UnicodeEncodeError:
+                print(f"DIFF TEXT: {len(diff_text)} characters (contains special characters)")
+            with open(latest_file, 'r', encoding='utf-8') as f:
                 html_content = f.read()
             log_message(f"Detected changes for job {name} at {url}")
 
@@ -820,7 +1129,7 @@ def run_job(name):
             log_message(f"No changes detected for job: {name}")
     else:
         # First-time check: summarize the entire page
-        with open(latest_file, 'r') as f:
+        with open(latest_file, 'r', encoding='utf-8') as f:
             html_content = f.read()
         context_text = extract_text_from_html(html_content)
         log_message(f"First-time check for job {name} at {url}")
@@ -1029,12 +1338,22 @@ def save_sorted_jobs(sort_by):
 def parse_frequency(frequency):
     return {'hourly': 3600, 'daily': 86400, 'weekly': 604800, 'minutely': 59, 'monthly': 2592000}[frequency]
 
+def is_permanent_http_error(status_code):
+    """Check if an HTTP status code represents a permanent/serious error."""
+    # 4xx client errors (except 429 rate limit which is temporary)
+    # 5xx server errors (500, 502, 503, etc.)
+    if status_code == 429:
+        return False  # Rate limiting is temporary
+    return 400 <= status_code < 600
+
 def check_cron(force = False):
     now = time.time()
     total_jobs = 0
     jobs_with_changes = 0
     emails_sent = 0
     emails_failed = 0
+    accumulated_errors = []  # Collect permanent errors to batch email at end
+    
     if os.path.exists('.gptcron'):
         with open('.gptcron', 'r') as f:
             for line in f:
@@ -1050,13 +1369,36 @@ def check_cron(force = False):
 
                         if (now >= next_run_time) or force:
                             log_message(f"Running job: {name}")
-                            changes_detected = run_job(name)
-                            if changes_detected:
-                                jobs_with_changes += 1
-                                emails_sent += 1
-                                log_message(f"Changes were detected for job: {name}")
-                            else:
-                                log_message(f"No changes detected for job: {name}")
+                            try:
+                                changes_detected = run_job(name)
+                                if changes_detected:
+                                    jobs_with_changes += 1
+                                    emails_sent += 1
+                                    log_message(f"Changes were detected for job: {name}")
+                                else:
+                                    log_message(f"No changes detected for job: {name}")
+                            except requests.exceptions.HTTPError as e:
+                                status_code = e.response.status_code if e.response is not None else 0
+                                if is_permanent_http_error(status_code):
+                                    error_type = "Page Not Found" if status_code == 404 else f"HTTP {status_code}"
+                                    accumulated_errors.append({
+                                        'job_name': name,
+                                        'url': url,
+                                        'status_code': status_code,
+                                        'error_type': error_type
+                                    })
+                                    log_message(f"Permanent HTTP error for job {name}: {status_code} - {url}")
+                                else:
+                                    # Temporary error - just log and continue
+                                    log_message(f"Temporary HTTP error for job {name}: {status_code} - will retry next run")
+                            except requests.exceptions.RequestException as e:
+                                # Connection errors, timeouts, etc. - log but don't accumulate
+                                # These are often temporary network issues
+                                log_message(f"Network error for job {name}: {str(e)} - will retry next run")
+                            except Exception as e:
+                                # Unexpected errors - log but continue processing other jobs
+                                log_message(f"Unexpected error for job {name}: {str(e)}")
+                                log_message(traceback.format_exc())
                         else:
                             fut=next_run_time - now
                             #log_message(f"Not running job: {name} because its next run time is {fut:.0f}s in the future.")
@@ -1064,6 +1406,11 @@ def check_cron(force = False):
                         print('bad job entry:', line)
 
     log_message(f"Checked cron jobs. Total: {total_jobs}, Changes: {jobs_with_changes}, Emails Sent: {emails_sent}, Emails Failed: {emails_failed}")
+    
+    # Send batch email for accumulated permanent errors
+    if accumulated_errors:
+        log_message(f"Sending batch error notification for {len(accumulated_errors)} permanent error(s)")
+        send_batch_error_email(accumulated_errors)
 
 
 def search_jobs(query):
@@ -1169,6 +1516,65 @@ def send_error_email(error_message):
     inner_send_email(subject, body, config['to_email'])
     log_message(f"Error email sent: {error_message}")
 
+def send_batch_error_email(errors):
+    """Send a single email summarizing all permanent HTTP errors from a cron run."""
+    if not errors:
+        return
+    
+    config = load_config()
+    error_count = len(errors)
+    subject = f"Gpt-diff: {error_count} job(s) with permanent errors"
+    
+    error_rows = ""
+    for err in errors:
+        error_rows += f"""
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd;"><strong>{html.escape(err['job_name'])}</strong></td>
+            <td style="padding: 8px; border: 1px solid #ddd;"><a href="{html.escape(err['url'])}">{html.escape(err['url'])}</a></td>
+            <td style="padding: 8px; border: 1px solid #ddd; color: #c0392b;">{err['status_code']}</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{html.escape(err['error_type'])}</td>
+        </tr>"""
+    
+    body = f"""
+    <html>
+    <head>
+        <style>
+            body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }}
+            h2 {{ color: #c0392b; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 15px; }}
+            th {{ background-color: #34495e; color: white; padding: 10px; text-align: left; }}
+            .note {{ background-color: #ffeaa7; padding: 10px; border-radius: 5px; margin-top: 20px; }}
+        </style>
+    </head>
+    <body>
+        <h2>⚠️ Permanent Errors Detected in {error_count} Job(s)</h2>
+        <p>The following jobs encountered permanent HTTP errors (site gone, page deleted, etc.) during this cron run:</p>
+        
+        <table>
+            <tr>
+                <th>Job Name</th>
+                <th>URL</th>
+                <th>Status</th>
+                <th>Error Type</th>
+            </tr>
+            {error_rows}
+        </table>
+        
+        <div class="note">
+            <strong>Note:</strong> These jobs will continue to fail until the URLs are corrected or the jobs are removed.
+            Consider running <code>python gptcron.py remove &lt;job_name&gt;</code> for defunct pages.
+        </div>
+        
+        <p style="color: #7f8c8d; margin-top: 20px;">
+            Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </p>
+    </body>
+    </html>
+    """
+    
+    inner_send_email(subject, body, config['to_email'])
+    log_message(f"Batch error email sent for {error_count} job(s): {', '.join(e['job_name'] for e in errors)}")
+
 if __name__ == "__main__":
     try:
         if len(sys.argv) > 1 and sys.argv[1] in ["help", "-h", "--h"]:
@@ -1211,6 +1617,8 @@ if __name__ == "__main__":
                 adjust_job_frequency(args.name, "unbump")
             elif args.command == "test":
                 test_job(args.name)
+            elif args.command == "compare_wikis":
+                compare_wikis(args.subject, args.send_email)
             else:
                 parser.print_help()
     except Exception as e:
