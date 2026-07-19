@@ -59,8 +59,8 @@ Edit `config.json`:
     "to_email": "your@email.com",
     "password": "your-gmail-app-password",
     "anthropic_api_key": "sk-ant-your-key-here",
-    "openai_api_key": "sk-your-openai-key-here",
-    "default_model": "claude-sonnet-4.5",
+    "openai_api_key": "",
+    "default_model": "claude-sonnet-4-5",
     "fallback_model": "gpt-4o"
 }
 ```
@@ -217,13 +217,13 @@ GPT-WebDiff supports both Claude (Anthropic) and OpenAI models:
 You can change the default model in `config.json`:
 ```json
 {
-    "default_model": "claude-sonnet-4.5",
+    "default_model": "claude-sonnet-4-5",
     "fallback_model": "gpt-4o"
 }
 ```
 
 Supported models:
-- `claude-sonnet-4.5` (recommended)
+- `claude-sonnet-4-5` (recommended)
 - `claude-opus-4`
 - `gpt-4o`
 - `gpt-4-turbo`
@@ -306,6 +306,19 @@ Both Claude and OpenAI offer generous free tiers for trying out the service.
 - **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this project
 - **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Detailed usage examples
 - **[IMPROVEMENTS.md](IMPROVEMENTS.md)** - Technical improvement notes
+
+### Automated Tests
+
+The test suite mocks websites, AI providers, and SMTP, so it does not need API keys
+or email credentials:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs the same suite on supported Python versions for every push and
+pull request. Before deployment, also run one real check with the configured provider
+and email account.
 
 ---
 

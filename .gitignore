@@ -9,6 +9,7 @@ config.json
 data/*
 emails/*
 .gptcron
+.gptcron.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

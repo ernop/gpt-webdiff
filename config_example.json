@@ -3,8 +3,8 @@
     "from_email": "krag@example.com",
     "to_email": "krag@example.com",
     "password":"aaaa bbbb cccc dddd",
-    "openai_api_key": "sk-your-openai-key-here",
-    "anthropic_api_key": "sk-ant-your-anthropic-key-here",
-    "default_model": "claude-sonnet-4.5",
+    "openai_api_key": "",
+    "anthropic_api_key": "",
+    "default_model": "claude-sonnet-4-5",
     "fallback_model": "gpt-4o"
 }

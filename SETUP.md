@@ -104,7 +104,7 @@ Having both allows automatic fallback:
 {
     "anthropic_api_key": "sk-ant-your-anthropic-key",
     "openai_api_key": "sk-your-openai-key",
-    "default_model": "claude-sonnet-4.5",
+    "default_model": "claude-sonnet-4-5",
     "fallback_model": "gpt-4o"
 }
 ```
@@ -172,7 +172,7 @@ Here's a complete configuration file:
     "password": "abcdefghijklmnop",
     "anthropic_api_key": "sk-ant-api03-abc123...",
     "openai_api_key": "sk-proj-abc123...",
-    "default_model": "claude-sonnet-4.5",
+    "default_model": "claude-sonnet-4-5",
     "fallback_model": "gpt-4o"
 }
 ```
@@ -225,7 +225,7 @@ Cron will automatically check your monitored sites at regular intervals.
    ```bash
    # Current directory
    pwd
-   
+
    # Python path (if using venv)
    which python3
    ```
