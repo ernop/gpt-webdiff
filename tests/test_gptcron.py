@@ -147,6 +147,8 @@ class ConfigAndProviderTests(GptCronTestCase):
         request = client.chat.completions.create.call_args.kwargs
         self.assertEqual(request["max_completion_tokens"], 123)
         self.assertNotIn("max_tokens", request)
+        self.assertEqual([message["role"] for message in request["messages"]], ["user"])
+        self.assertIn("You are a helpful assistant.", request["messages"][0]["content"])
 
 
 class JsonAndDiffTests(GptCronTestCase):
@@ -408,12 +410,43 @@ class CronAndCliTests(GptCronTestCase):
 
         self.assertEqual([job["name"] for job in jobs], ["valid-site"])
 
-    def test_parse_cron_keeps_safe_legacy_name_with_dot(self):
-        self.write_job(name="legacy.site")
+    def test_parse_cron_keeps_safe_legacy_names(self):
+        with open(".gptcron", "w", encoding="utf-8") as cron_file:
+            cron_file.write(
+                "daily legacy.site https://example.com 20260101000000\n"
+                "daily site+alerts https://example.org 20260101000000\n"
+                "daily site@home https://example.net 20260101000000\n"
+            )
 
         jobs = gptcron.parse_cron_file()
 
-        self.assertEqual(jobs[0]["name"], "legacy.site")
+        self.assertEqual(
+            [job["name"] for job in jobs],
+            ["legacy.site", "site+alerts", "site@home"]
+        )
+
+    def test_cron_rewrites_preserve_invalid_and_comment_lines(self):
+        with open(".gptcron", "w", encoding="utf-8") as cron_file:
+            cron_file.write(
+                "# keep this comment\n"
+                "sometimes broken https://example.com 20260101000000\n"
+                "daily valid https://example.org 20260101000000\n"
+            )
+
+        gptcron.write_cron_jobs([
+            {
+                "frequency": "hourly",
+                "name": "valid",
+                "url": "https://example.org",
+                "date_added": "20260101000000"
+            }
+        ])
+
+        with open(".gptcron", "r", encoding="utf-8") as cron_file:
+            content = cron_file.read()
+        self.assertIn("# keep this comment", content)
+        self.assertIn("sometimes broken https://example.com", content)
+        self.assertIn("hourly valid https://example.org", content)
 
     def test_add_rejects_path_traversal_name(self):
         gptcron.add_job("../../escape", "https://example.com", "daily")

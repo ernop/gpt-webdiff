@@ -267,14 +267,22 @@ def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=40
 
             client = OpenAI(api_key=config['openai_api_key'])
 
-            kwargs = {
-                'model': model_name,
-                'messages': [
+            is_reasoning_model = model_name.lower().startswith(('o1', 'o3', 'o4'))
+            if is_reasoning_model:
+                messages = [{
+                    "role": "user",
+                    "content": f"{system_prompt}\n\n{prompt}"
+                }]
+            else:
+                messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ]
+            kwargs = {
+                'model': model_name,
+                'messages': messages
             }
-            if model_name.lower().startswith(('o1', 'o3', 'o4')):
+            if is_reasoning_model:
                 kwargs['max_completion_tokens'] = max_tokens
             else:
                 kwargs['max_tokens'] = max_tokens
@@ -307,10 +315,19 @@ def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=40
             raise
 
 def log_message(message):
-    with open(LOG_FILE, 'a') as log_file:
-        msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
+    msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
+    try:
         print(msg)
-        log_file.write(msg+'\n')
+    except Exception:
+        pass
+    try:
+        with open(LOG_FILE, 'a') as log_file:
+            log_file.write(msg+'\n')
+    except Exception as e:
+        try:
+            print(f"Could not write to {LOG_FILE}: {str(e)}")
+        except Exception:
+            pass
 
 def load_metadata():
     if not os.path.exists('job_metadata.json'):
@@ -347,7 +364,36 @@ def write_cron_jobs(jobs):
         f"{job['frequency']} {job['name']} {job['url']} {job['date_added']}\n"
         for job in jobs
     )
+    if os.path.exists('.gptcron'):
+        with open('.gptcron', 'r', encoding='utf-8') as cron_file:
+            for line_number, line in enumerate(cron_file, start=1):
+                if not line.strip() or line.startswith('#'):
+                    content += line
+                    continue
+                _, error = parse_cron_line(line, line_number)
+                if error:
+                    content += line
     atomic_write_text('.gptcron', content)
+
+
+def parse_cron_line(line, line_number):
+    parts = line.split()
+    if len(parts) not in (3, 4):
+        return None, f"Skipping malformed .gptcron line {line_number}: {line.rstrip()}"
+    frequency, name, url = parts[:3]
+    date_added = parts[3] if len(parts) == 4 else "00000000000000"
+    if frequency not in VALID_FREQUENCIES:
+        return None, f"Skipping .gptcron line {line_number}: invalid frequency '{frequency}'"
+    if not is_safe_existing_job_name(name):
+        return None, f"Skipping .gptcron line {line_number}: unsafe job name '{name}'"
+    if not re.fullmatch(r'\d{14}', date_added):
+        return None, f"Skipping .gptcron line {line_number}: invalid date '{date_added}'"
+    return {
+        "frequency": frequency,
+        "name": name,
+        "url": url,
+        "date_added": date_added
+    }, None
 
 #email a copy of the .gptcron file to the user in settings.
 def email_me_gptcron():
@@ -853,10 +899,13 @@ def send_email(job_name, subject, body, to_email):
     inner_send_email(subject, body, to_email)
     try:
         save_email_to_disk(job_name, subject, body)
-    except OSError as e:
+    except Exception as e:
         log_message(f"Email was sent but its local archive could not be saved: {str(e)}")
-    print(f"Email sent to {to_email}")
-    log_message(f"Email sent to {to_email} for job {job_name}")
+    try:
+        print(f"Email sent to {to_email}")
+        log_message(f"Email sent to {to_email} for job {job_name}")
+    except Exception:
+        pass
 
 def inner_send_email(subject, body, to_email):
     config = load_config()
@@ -974,24 +1023,11 @@ def parse_cron_file():
 
     for line_number, line in enumerate(lines, start=1):
         if line.strip() and not line.startswith('#'):
-            parts = line.split()
-            if len(parts) >= 3:
-                frequency = parts[0]
-                name = parts[1]
-                url = parts[2]
-                date_added = parts[3] if len(parts) > 3 else "00000000000000"
-                if frequency not in VALID_FREQUENCIES:
-                    print(f"Skipping .gptcron line {line_number}: invalid frequency '{frequency}'")
-                    continue
-                if not is_safe_existing_job_name(name):
-                    print(f"Skipping .gptcron line {line_number}: unsafe job name '{name}'")
-                    continue
-                if not re.fullmatch(r'\d{14}', date_added):
-                    print(f"Skipping .gptcron line {line_number}: invalid date '{date_added}'")
-                    continue
-                jobs.append({"frequency": frequency, "name": name, "url": url, "date_added": date_added})
+            job, error = parse_cron_line(line, line_number)
+            if error:
+                print(error)
             else:
-                print(f"Skipping malformed .gptcron line {line_number}: {line.rstrip()}")
+                jobs.append(job)
     return jobs
 
 def backup_cron_file():
@@ -1114,7 +1150,13 @@ def is_valid_job_name(name):
 
 
 def is_safe_existing_job_name(name):
-    return bool(name and re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]*', name))
+    return bool(
+        name
+        and name not in ('.', '..')
+        and '/' not in name
+        and '\\' not in name
+        and not any(character.isspace() for character in name)
+    )
 
 
 def gpt_generate_job_names(url, text, exclusions):
