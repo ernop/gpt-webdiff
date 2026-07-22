@@ -1,0 +1,41 @@
+[Unit]
+Description=GPT-WebDiff website monitoring run
+Documentation=https://github.com/ernop/gpt-webdiff
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gptwebdiff
+Group=gptwebdiff
+WorkingDirectory=/opt/gpt-webdiff/app
+ExecStart=/opt/gpt-webdiff/venv/bin/python /opt/gpt-webdiff/app/gptcron.py check_cron
+TimeoutStartSec=30min
+UMask=0077
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/gpt-webdiff/app
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

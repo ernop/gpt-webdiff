@@ -303,6 +303,7 @@ Both Claude and OpenAI offer generous free tiers for trying out the service.
 ## 📚 Documentation
 
 - **[SETUP.md](SETUP.md)** - Detailed setup instructions
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Live systemd deployment and update workflow
 - **[AGENTS.md](AGENTS.md)** - Guide for AI agents working on this project
 - **[USAGE_GUIDE.md](USAGE_GUIDE.md)** - Detailed usage examples
 - **[IMPROVEMENTS.md](IMPROVEMENTS.md)** - Technical improvement notes

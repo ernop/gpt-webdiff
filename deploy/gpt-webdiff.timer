@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GPT-WebDiff every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30s
+Unit=gpt-webdiff.service
+
+[Install]
+WantedBy=timers.target
