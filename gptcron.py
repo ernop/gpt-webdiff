@@ -296,23 +296,11 @@ def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=40
                 raise RuntimeError("OpenAI returned an empty response")
             return content.strip()
 
-    try:
-        return try_call(model)
-    except Exception as e:
-        log_message(f"Primary model {model} failed: {str(e)}")
-
-        fallback = config['fallback_model']
-        if fallback and fallback != model:
-            try:
-                log_message(f"Trying fallback model: {fallback}")
-                return try_call(fallback)
-            except Exception as e2:
-                log_message(f"Fallback model {fallback} also failed: {str(e2)}")
-                raise RuntimeError(
-                    f"Both primary ({model}) and fallback ({fallback}) models failed"
-                ) from e2
-        else:
-            raise
+    # Anti-fallback (mybrowser 00-absolute-rules): there is only the primary
+    # path. A model failure raises loudly at the point of failure — we never
+    # silently substitute a different model. Fix the real cause (key, model
+    # slug, provider outage) instead. `fallback_model` in config is unused.
+    return try_call(model)
 
 def log_message(message):
     msg = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}"
