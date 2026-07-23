@@ -478,7 +478,7 @@ def test_job(name=None):
 
 def fetch_page_content(url):
     try:
-        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        user_agent = 'Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0'
         headers = {'User-Agent': user_agent}
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
@@ -1098,7 +1098,7 @@ def compare_files(html1, html2):
 def download_url(url, name):
     output_file = f"data/{name}/{name}-{datetime.now().strftime('%Y%m%d-%H-%M-%S-%f')}.html"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    user_agent = 'Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0'
 
     try:
         # Use requests library instead of wget for better cross-platform compatibility
