@@ -248,3 +248,28 @@ When in doubt, ask the developer rather than guessing.
 Add **high-level concepts** here. Keep it tight. Product context helps agents make better decisions than raw technical specs alone.
 
 Max target: ~200 lines. If longer, compress or link to separate docs.
+
+## Remaining work — event tracking (2026-07-25)
+
+Deployed on tpbeta (`/opt/gpt-webdiff`, `gptwebdiff` systemd user, 15-min timer);
+5 jobs baseline-emailed and live; model switched to Fable (`claude-fable-5`) in
+local config. Done in-repo (some unpushed): anti-fallback (removed gpt-4o
+model-fallback), UA bumped to current Firefox (Chrome-91 was Cloudflare-blocked),
+clean HTML extraction (strip nav/sidebars/forms/controls), evaluator system
+prompt upgraded to an expert identity, dual model choice
+(`claude-fable-5` / `gpt-5.6-sol`) + reasoning-effort dial.
+
+To finish:
+1. Push the uncommitted `gptcron.py` edits; on tpbeta switch the app checkout to
+   `master`, pull; set tpbeta `config.json` `default_model` = `claude-fable-5`.
+2. Rename ugly jobs: `sffilm-calendar` → `sf-film-screenings`,
+   `smuhsd-performing-arts` → `san-mateo-hs-theater` (re-baselines).
+3. Add an **events** job kind (vs **news**): event pages get an extraction prompt
+   — pull *new* showings from the diff, email as a list, format
+   `title · date · time-of-day · place · city`, only venues **≤ 1.5 hr drive of
+   Mountain View, CA** (Fable judges from place/city), drop unplaceable venues.
+   News pages keep the 0–10 significance score. Events = sf-film + san-mateo.
+4. Management: small **web UI on tpbeta** to list/add/edit/delete/test/review;
+   email stays notification-only (poor control channel — spoofable, no list view).
+5. Later/separate: **discovery** of new venues (search/aggregation) — the monitor
+   only watches fixed URLs.

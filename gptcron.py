@@ -267,7 +267,7 @@ def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=40
 
             client = OpenAI(api_key=config['openai_api_key'])
 
-            is_reasoning_model = model_name.lower().startswith(('o1', 'o3', 'o4'))
+            is_reasoning_model = model_name.lower().startswith(('o1', 'o3', 'o4', 'gpt-5'))
             if is_reasoning_model:
                 messages = [{
                     "role": "user",
@@ -284,6 +284,9 @@ def call_llm(prompt, system_prompt="You are a helpful assistant.", max_tokens=40
             }
             if is_reasoning_model:
                 kwargs['max_completion_tokens'] = max_tokens
+                # gpt-5.x / o-series take a reasoning-effort dial; "medium" is the
+                # chosen setting for gpt-5.6-sol.
+                kwargs['reasoning_effort'] = 'medium'
             else:
                 kwargs['max_tokens'] = max_tokens
 
@@ -790,7 +793,14 @@ def summarize_diff(diff_text, all_text, html_content, url, name):
 
     response_text = call_llm(
         prompt=prompt,
-        system_prompt="You are a helpful assistant that returns JSON responses.",
+        system_prompt=(
+            "You are a senior editorial-intelligence analyst. Your specialty is judging "
+            "how significant a change to a web page is, relative to that page's specific "
+            "purpose and the person tracking it. You are precise, skeptical of noise, and "
+            "well-calibrated: you reserve high scores for changes that genuinely matter to "
+            "that reader, and you rate boilerplate, navigation, layout, ads, and cosmetic "
+            "churn near zero. You always return valid JSON."
+        ),
         response_format={"type": "json_object"},
         max_tokens=3500
     )
@@ -932,7 +942,15 @@ def extract_text_from_html(html_content):
 
 def extract_visible_lines_from_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
-    for element in soup(['script', 'style', 'noscript', 'template']):
+    # Strip non-content and site chrome (nav bars, sidebars, forms, controls,
+    # scripts, vector/embeds) so the diff and the judge see the main content —
+    # e.g. the calendar/listing region — not the surrounding furniture. Kept
+    # deliberately conservative (header/footer left in) to avoid dropping
+    # listings that some sites place outside <main>.
+    for element in soup([
+        'script', 'style', 'noscript', 'template', 'svg', 'iframe',
+        'nav', 'aside', 'form', 'button', 'input', 'select', 'option', 'label',
+    ]):
         element.decompose()
     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
         comment.extract()

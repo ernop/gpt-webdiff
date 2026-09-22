@@ -99,15 +99,10 @@ class ConfigAndProviderTests(GptCronTestCase):
         sent_prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
         self.assertIn("Respond ONLY with valid JSON", sent_prompt)
 
-    def test_provider_failure_falls_back_to_openai(self):
+    def test_provider_failure_propagates_without_fallback(self):
         anthropic_client = Mock()
         anthropic_client.messages.create.side_effect = RuntimeError("provider unavailable")
         anthropic_module = SimpleNamespace(Anthropic=Mock(return_value=anthropic_client))
-        completion = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="fallback result"))]
-        )
-        openai_client = Mock()
-        openai_client.chat.completions.create.return_value = completion
         config = {
             "default_model": "claude-test",
             "fallback_model": "gpt-test",
@@ -118,10 +113,11 @@ class ConfigAndProviderTests(GptCronTestCase):
         with patch.object(gptcron, "get_model_config", return_value=config), \
                 patch.object(gptcron, "ANTHROPIC_AVAILABLE", True), \
                 patch.object(gptcron, "anthropic", anthropic_module), \
-                patch.object(gptcron, "OpenAI", return_value=openai_client):
-            result = gptcron.call_llm("prompt")
+                patch.object(gptcron, "OpenAI") as openai_factory:
+            with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+                gptcron.call_llm("prompt")
 
-        self.assertEqual(result, "fallback result")
+        openai_factory.assert_not_called()
 
     def test_unknown_model_fails_clearly(self):
         with self.assertRaisesRegex(ValueError, "Unsupported model"):
@@ -140,15 +136,18 @@ class ConfigAndProviderTests(GptCronTestCase):
             "anthropic_api_key": None
         }
 
-        with patch.object(gptcron, "get_model_config", return_value=config), \
-                patch.object(gptcron, "OpenAI", return_value=client):
-            gptcron.call_llm("prompt", max_tokens=123)
+        for model in ("o3-test", "gpt-5.6-sol"):
+            with self.subTest(model=model), \
+                    patch.object(gptcron, "get_model_config", return_value={**config, "default_model": model}), \
+                    patch.object(gptcron, "OpenAI", return_value=client):
+                gptcron.call_llm("prompt", max_tokens=123)
 
-        request = client.chat.completions.create.call_args.kwargs
-        self.assertEqual(request["max_completion_tokens"], 123)
-        self.assertNotIn("max_tokens", request)
-        self.assertEqual([message["role"] for message in request["messages"]], ["user"])
-        self.assertIn("You are a helpful assistant.", request["messages"][0]["content"])
+            request = client.chat.completions.create.call_args.kwargs
+            self.assertEqual(request["max_completion_tokens"], 123)
+            self.assertEqual(request["reasoning_effort"], "medium")
+            self.assertNotIn("max_tokens", request)
+            self.assertEqual([message["role"] for message in request["messages"]], ["user"])
+            self.assertIn("You are a helpful assistant.", request["messages"][0]["content"])
 
 
 class JsonAndDiffTests(GptCronTestCase):
