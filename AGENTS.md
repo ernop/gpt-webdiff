@@ -259,6 +259,14 @@ clean HTML extraction (strip nav/sidebars/forms/controls), evaluator system
 prompt upgraded to an expert identity, dual model choice
 (`claude-fable-5` / `gpt-5.6-sol`) + reasoning-effort dial.
 
+Email delivery is broken on tpbeta (found 2026-10-15): every run logs
+`Failed to send email: [Errno 101] Network is unreachable`, back to at least
+2026-09-22. Outbound TCP to smtp.gmail.com on 25, 465 and 587 does not
+connect from tpbeta (DigitalOcean blocks SMTP ports by default). The checks
+run and record changes, but no alert email reaches the owner. Fix options:
+have DigitalOcean lift the SMTP block, or send through an HTTP email API.
+Owner's choice; not decided.
+
 To finish:
 1. Push the uncommitted `gptcron.py` edits; on tpbeta switch the app checkout to
    `master`, pull; set tpbeta `config.json` `default_model` = `claude-fable-5`.
