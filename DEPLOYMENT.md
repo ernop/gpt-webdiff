@@ -19,7 +19,7 @@ sudo -u gptwebdiff /opt/gpt-webdiff/venv/bin/python /opt/gpt-webdiff/app/gptcron
 sudo systemctl enable --now gpt-webdiff.timer
 ```
 
-Do not enable the timer until `config.json` contains valid email and AI credentials.
+Do not enable the timer until `config.json` contains valid AI keys and Gmail API OAuth credentials (`gmail_client_id`, `gmail_client_secret`, `gmail_refresh_token` — obtained once on a desktop browser via `python3 gptcron.py auth-gmail`, scope `gmail.send` over HTTPS port 443; verify with `python3 gptcron.py test-email`). Outbound SMTP is blocked on DigitalOcean droplets, so `gpt-webdiff` uses the Gmail REST API exclusively.
 
 ## Updating
 

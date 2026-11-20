@@ -1,10 +1,10 @@
 {
-    "login_email": "krag@example.com",
-    "from_email": "krag@example.com",
-    "to_email": "krag@example.com",
-    "password":"aaaa bbbb cccc dddd",
+    "from_email": "sender@example.com",
+    "to_email": "recipient@example.com",
+    "gmail_client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+    "gmail_client_secret": "GOCSPX-YOUR_CLIENT_SECRET",
+    "gmail_refresh_token": "RUN_AUTH_GMAIL_TO_POPULATE",
     "openai_api_key": "",
     "anthropic_api_key": "",
-    "default_model": "claude-sonnet-4-5",
-    "fallback_model": "gpt-4o"
+    "default_model": "claude-sonnet-4-5"
 }

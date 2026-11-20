@@ -3,6 +3,7 @@ disable
 gptcron_backups/*
 openai_responses/*
 job_metadata.json
+email_send_log.json
 emails/*
 apikey.txt
 config.json

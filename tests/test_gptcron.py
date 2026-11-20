@@ -1,10 +1,13 @@
+import base64
 import json
 import os
 import tempfile
 import unittest
+from email import message_from_bytes
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import gmail_sender
 import gptcron
 
 
@@ -13,17 +16,20 @@ class GptCronTestCase(unittest.TestCase):
         self.original_directory = os.getcwd()
         self.temporary_directory = tempfile.TemporaryDirectory()
         os.chdir(self.temporary_directory.name)
+        gmail_sender.reset_token_cache()
 
     def tearDown(self):
+        gmail_sender.reset_token_cache()
         os.chdir(self.original_directory)
         self.temporary_directory.cleanup()
 
     def write_config(self, **overrides):
         config = {
-            "login_email": "sender@example.com",
             "from_email": "sender@example.com",
             "to_email": "recipient@example.com",
-            "password": "password",
+            "gmail_client_id": "client-id.apps.googleusercontent.com",
+            "gmail_client_secret": "client-secret",
+            "gmail_refresh_token": "refresh-token",
             "default_model": "claude-test",
             "fallback_model": "gpt-test",
             "anthropic_api_key": "anthropic-key",
@@ -230,12 +236,108 @@ class JsonAndDiffTests(GptCronTestCase):
 
 
 class StateAndEmailTests(GptCronTestCase):
-    def test_smtp_failure_is_propagated(self):
-        self.write_config()
+    def _mock_response(self, status_code, payload):
+        response = Mock()
+        response.status_code = status_code
+        response.json.return_value = payload
+        response.text = json.dumps(payload)
+        return response
 
-        with patch.object(gptcron.smtplib, "SMTP", side_effect=OSError("offline")):
+    def test_gmail_api_sends_html_and_caches_access_token(self):
+        self.write_config()
+        token_resp = self._mock_response(200, {"access_token": "tok-123", "expires_in": 3600})
+        send_resp = self._mock_response(200, {"id": "msg-1"})
+
+        with patch.object(
+            gmail_sender.requests, "post", side_effect=[token_resp, send_resp, send_resp]
+        ) as post_mock:
+            gptcron.inner_send_email("Alert 1", "<p>Body 1</p>", "recipient@example.com")
+            gptcron.inner_send_email("Alert 2", "<p>Body 2</p>", "recipient@example.com")
+
+        # 1 token exchange + 2 message sends (access token reused in-process).
+        self.assertEqual(post_mock.call_count, 3)
+        self.assertEqual(post_mock.call_args_list[0].args[0], gmail_sender.TOKEN_URL)
+        self.assertEqual(post_mock.call_args_list[1].args[0], gmail_sender.SEND_URL)
+        self.assertEqual(post_mock.call_args_list[2].args[0], gmail_sender.SEND_URL)
+
+        sent_headers = post_mock.call_args_list[1].kwargs["headers"]
+        self.assertEqual(sent_headers["Authorization"], "Bearer tok-123")
+        raw_b64 = post_mock.call_args_list[1].kwargs["json"]["raw"]
+        parsed = message_from_bytes(base64.urlsafe_b64decode(raw_b64.encode("ascii")))
+        self.assertEqual(parsed["Subject"], "Alert 1")
+        self.assertEqual(parsed["From"], "sender@example.com")
+        self.assertEqual(parsed["To"], "recipient@example.com")
+        self.assertIn("<p>Body 1</p>", parsed.get_payload(decode=True).decode("utf-8"))
+
+        with open(gmail_sender.SEND_LOG_FILE, "r", encoding="utf-8") as handle:
+            log = json.load(handle)
+        self.assertEqual(len(log["sent_timestamps"]), 2)
+
+    def test_missing_gmail_credentials_fails_loudly(self):
+        self.write_config(gmail_refresh_token="")
+
+        with self.assertRaises(gptcron.EmailDeliveryError) as ctx:
+            gptcron.inner_send_email("subject", "body", "recipient@example.com")
+        self.assertIn("gmail_refresh_token", str(ctx.exception))
+
+    def test_gmail_api_http_error_is_propagated(self):
+        self.write_config()
+        token_resp = self._mock_response(200, {"access_token": "tok-123", "expires_in": 3600})
+        send_err = self._mock_response(
+            403, {"error": {"status": "PERMISSION_DENIED", "message": "Insufficient Permission"}}
+        )
+
+        with patch.object(gmail_sender.requests, "post", side_effect=[token_resp, send_err]):
+            with self.assertRaises(gptcron.EmailDeliveryError) as ctx:
+                gptcron.inner_send_email("subject", "body", "recipient@example.com")
+        self.assertIn("403", str(ctx.exception))
+        self.assertIn("PERMISSION_DENIED", str(ctx.exception))
+
+    def test_invalid_grant_trips_circuit_breaker_until_config_updated(self):
+        self.write_config()
+        err_resp = self._mock_response(
+            400, {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
+        )
+
+        with patch.object(gmail_sender.requests, "post", return_value=err_resp) as post_mock:
             with self.assertRaises(gptcron.EmailDeliveryError):
                 gptcron.inner_send_email("subject", "body", "recipient@example.com")
+            with self.assertRaises(gptcron.EmailDeliveryError) as second_ctx:
+                gptcron.inner_send_email("subject", "body", "recipient@example.com")
+
+        # Second attempt must not hammer Google OAuth while config.json is unchanged.
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertIn("re-authorize", str(second_ctx.exception))
+
+        # Touching config.json with a newer mtime clears the circuit breaker.
+        future = os.path.getmtime("config.json") + 10.0
+        os.utime("config.json", (future, future))
+        token_resp = self._mock_response(200, {"access_token": "tok-new", "expires_in": 3600})
+        send_resp = self._mock_response(200, {"id": "msg-ok"})
+        with patch.object(gmail_sender.requests, "post", side_effect=[token_resp, send_resp]):
+            gptcron.inner_send_email("subject", "body", "recipient@example.com")
+
+    def test_daily_email_budget_refuses_send_past_limit(self):
+        self.write_config()
+        now = 2_000_000.0
+        with open(gmail_sender.SEND_LOG_FILE, "w", encoding="utf-8") as handle:
+            json.dump(
+                {"sent_timestamps": [now - 60.0] * gmail_sender.MAX_EMAILS_PER_24H},
+                handle,
+            )
+
+        with patch.object(gmail_sender.requests, "post") as post_mock:
+            with self.assertRaises(gmail_sender.GmailDeliveryError) as ctx:
+                gmail_sender.send_html_email(
+                    gptcron.load_config(),
+                    "subject",
+                    "<p>body</p>",
+                    "recipient@example.com",
+                    now=now,
+                )
+
+        post_mock.assert_not_called()
+        self.assertIn("Daily email budget reached", str(ctx.exception))
 
     def test_failed_email_is_not_archived_as_sent(self):
         with patch.object(

@@ -9,18 +9,17 @@ import json
 import os
 import re
 import shutil
-import smtplib
 import sys
 import tempfile
 import time
 import requests
 from collections import Counter
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
 from urllib.parse import quote
 
 from bs4 import BeautifulSoup, Comment
 from openai import OpenAI
+import gmail_sender
 try:
     import anthropic
     ANTHROPIC_AVAILABLE = True
@@ -450,6 +449,11 @@ def setup_argparse():
     compare_wikis_parser = subparsers.add_parser('compare_wikis', help='Compare Grokipedia and Wikipedia pages for a given subject. Usage: compare_wikis <subject>')
     compare_wikis_parser.add_argument('subject', type=str, help='Subject/topic to compare between Grokipedia and Wikipedia')
     compare_wikis_parser.add_argument('--send-email', action='store_true', help='Send results via email instead of printing to console')
+
+    auth_gmail_parser = subparsers.add_parser('auth-gmail', help='Authorize gmail.send OAuth token over HTTPS and save gmail_refresh_token to config.json')
+    auth_gmail_parser.add_argument('--login-hint', type=str, default=None, help='Gmail address hint for the browser consent screen')
+
+    subparsers.add_parser('test-email', help='Send one test email via the Gmail API over HTTPS')
 
     return parser
 
@@ -907,31 +911,18 @@ def send_email(job_name, subject, body, to_email):
 
 def inner_send_email(subject, body, to_email):
     config = load_config()
-    msg = MIMEText(body, 'html')
-    msg['Subject'] = subject
-    msg['From'] = config['from_email']
-    msg['To'] = to_email
-    smtp_server = "smtp.gmail.com"
-    smtp_port = 587
-    smtp_user = config['login_email']
-    smtp_password = config['password']
-
-    server = None
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port, timeout=30)
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, [to_email], msg.as_string())
+        gmail_sender.send_html_email(
+            config,
+            subject,
+            body,
+            to_email,
+            config_path=CONFIG_FILE,
+        )
     except Exception as e:
         print(f"Failed to send email: {e}")
         log_message(f"Failed to send email to {to_email}: {e}")
-        raise EmailDeliveryError(f"Failed to send email to {to_email}") from e
-    finally:
-        if server is not None:
-            try:
-                server.quit()
-            except Exception as e:
-                log_message(f"SMTP cleanup failed after delivery attempt: {str(e)}")
+        raise EmailDeliveryError(f"Failed to send email to {to_email}: {e}") from e
 
 
 
@@ -1810,6 +1801,16 @@ if __name__ == "__main__":
                 test_job(args.name)
             elif args.command == "compare_wikis":
                 compare_wikis(args.subject, args.send_email)
+            elif args.command == "auth-gmail":
+                gmail_sender.authorize_gmail_send(CONFIG_FILE, login_hint=args.login_hint)
+            elif args.command == "test-email":
+                cfg = load_config()
+                inner_send_email(
+                    "gpt-webdiff test email",
+                    "<p>Test alert from gpt-webdiff over Gmail API (HTTPS).</p>",
+                    cfg["to_email"],
+                )
+                print(f"Test email sent to {cfg['to_email']}")
             else:
                 parser.print_help()
     except Exception as e:
