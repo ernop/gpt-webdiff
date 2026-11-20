@@ -263,8 +263,8 @@ Email delivery switched off SMTP to the Gmail REST API over HTTPS port 443
 (`gmail_sender.py`, scope `gmail.send` only, rolling 100-email/24h budget,
 OAuth failure circuit-breaker, `python3 gptcron.py auth-gmail` + `test-email`)
 on 2026-11-20 because DigitalOcean blocks outbound SMTP ports (25, 465, 587)
-on tpbeta. Activation on tpbeta needs `gmail_client_id`, `gmail_client_secret`,
-and `gmail_refresh_token` in `/opt/gpt-webdiff/app/config.json`.
+on tpbeta. Live and verified on tpbeta (`test-email` delivered 2026-11-20;
+legacy SMTP `login_email`/`password` keys removed from tpbeta `config.json`).
 
 To finish:
 1. Push the uncommitted `gptcron.py` edits; on tpbeta switch the app checkout to
