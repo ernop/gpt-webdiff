@@ -13,6 +13,7 @@ import http.server
 import json
 import os
 import secrets
+import tempfile
 import time
 import urllib.parse
 from email.mime.text import MIMEText
@@ -82,10 +83,19 @@ def _load_send_log(path: str = SEND_LOG_FILE) -> dict:
 
 
 def _save_send_log(state: dict, path: str = SEND_LOG_FILE) -> None:
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(state, handle, indent=2)
-    os.replace(tmp_path, path)
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=directory, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def _check_auth_circuit_breaker(config_path: str, state: dict) -> None:
@@ -204,8 +214,9 @@ def send_html_email(
         client_id, client_secret, refresh_token, state, send_log_path, current_time
     )
 
+    clean_subject = " ".join(str(subject).splitlines()).strip()
     msg = MIMEText(html_body, "html", "utf-8")
-    msg["Subject"] = subject
+    msg["Subject"] = clean_subject
     msg["From"] = from_email
     msg["To"] = to_email
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
